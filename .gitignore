@@ -1,0 +1,20 @@
+# .NET
+bin/
+obj/
+*.user
+
+# Frontend
+node_modules/
+frontend/dist/
+backend/Finance.Api/wwwroot/
+
+# Downloaded source spreadsheets used by tools/build_history.py
+tools/.cache/
+
+# Local settings with credentials (copy appsettings.Development.example.json)
+backend/Finance.Api/appsettings.Development.json
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

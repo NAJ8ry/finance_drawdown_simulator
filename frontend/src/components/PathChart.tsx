@@ -1,0 +1,385 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { fmt, toNominal } from '../defaults'
+import type { SimulationInput, SimulationResult } from '../types'
+
+export type Series = 'balance' | 'income' | 'withdrawal'
+export type Money = 'Real' | 'Nominal'
+
+export interface LegendState {
+  best: boolean
+  median: boolean
+  worst: boolean
+  likely: boolean
+  lessLikely: boolean
+  rare: boolean
+  calendar: boolean
+  oneOffs: boolean
+  partial: boolean
+  allMonths: boolean
+}
+
+export const defaultLegend: LegendState = {
+  best: false,
+  median: false,
+  worst: false,
+  likely: false,
+  lessLikely: false,
+  rare: false,
+  calendar: true,
+  oneOffs: true,
+  partial: true,
+  allMonths: false,
+}
+
+interface Props {
+  result: SimulationResult
+  input: SimulationInput
+  series: Series
+  money: Money
+  zoom: number
+  legend: LegendState
+  selected: number | null
+  onSelect: (index: number | null) => void
+}
+
+const HEIGHT = 440
+const M = { top: 16, right: 20, bottom: 46, left: 64 }
+const COLORS = { best: '#2e7d5b', median: '#2b4c7e', worst: '#b23a3a', hover: '#111827', band: '#5b6fa8' }
+
+function percentile(sorted: number[], p: number) {
+  if (sorted.length === 0) return 0
+  const r = (p / 100) * (sorted.length - 1)
+  const lo = Math.floor(r)
+  const hi = Math.ceil(r)
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (r - lo)
+}
+
+export function PathChart({ result, input, series, money, zoom, legend, selected, onSelect }: Props) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [width, setWidth] = useState(800)
+  const [hover, setHover] = useState<{ index: number; k: number; x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setWidth(Math.max(320, Math.floor(e.contentRect.width))))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const years = input.deathAge - input.retirementAge
+  const infl = input.inflationRate
+
+  // Values per path per year, converted to the chosen money basis
+  const data = useMemo(() => {
+    return result.paths.map((p) => {
+      const raw = series === 'balance' ? p.balances : series === 'income' ? p.spending : p.withdrawals
+      return money === 'Nominal' ? raw.map((v, k) => toNominal(v, k, infl)) : raw
+    })
+  }, [result, series, money, infl])
+
+  const bands = useMemo(() => {
+    const complete = result.paths.map((p, i) => (p.partial ? -1 : i)).filter((i) => i >= 0)
+    const n = series === 'balance' ? years + 1 : years
+    return Array.from({ length: n }, (_, k) => {
+      const vals = complete.map((i) => data[i][k]).sort((a, b) => a - b)
+      return [5, 10, 25, 50, 75, 90, 95].map((p) => percentile(vals, p))
+    })
+  }, [data, result, series, years])
+
+  // Fit the scale to the likely range, not the extreme winners: 1.3 × the highest 75th percentile at any age,
+  // never below 1.5 × the starting pot, rounded up to a tidy number. Lines above the top are clipped.
+  const yMaxFit = useMemo(() => {
+    const likelyTop = Math.max(1, ...bands.map((b) => b[4])) * 1.3
+    const floor = series === 'balance' ? input.startingBalance * 1.5 : Math.max(...bands.map((b) => b[3])) * 1.2
+    return niceCeil(Math.max(likelyTop, floor))
+  }, [bands, series, input.startingBalance])
+  const yMax = yMaxFit / zoom
+  // Withdrawals go negative when other income is paid into the pot
+  const yMin = useMemo(() => {
+    const bottom = Math.min(0, ...bands.map((b) => b[0]))
+    return bottom < 0 ? (bottom * 1.25) / zoom : 0
+  }, [bands, zoom])
+
+  const innerW = width - M.left - M.right
+  const innerH = HEIGHT - M.top - M.bottom
+  const xOf = (k: number) => M.left + (k / years) * innerW
+  const yOf = (v: number) => M.top + innerH - ((Math.max(Math.min(v, yMax * 1.5), yMin * 1.5) - yMin) / (yMax - yMin)) * innerH
+
+  // Every start month counts in the analysis, but by default only one line per year is drawn (the first start month of
+  // each calendar year) to keep the chart readable
+  const drawn = useMemo(() => {
+    if (legend.allMonths) return result.paths.map(() => true)
+    let lastYear = ''
+    return result.paths.map((p) => {
+      const year = p.start.slice(0, 4)
+      if (year === lastYear) return false
+      lastYear = year
+      return true
+    })
+  }, [result, legend.allMonths])
+  const drawnCount = useMemo(() => drawn.filter(Boolean).length, [drawn])
+  const visible = (i: number) => drawn[i] && (legend.partial || !result.paths[i].partial)
+  const aboveTop = useMemo(
+    () => data.filter((vals, i) => drawn[i] && (legend.partial || !result.paths[i].partial) && vals.some((v) => v > yMax)).length,
+    [data, drawn, legend.partial, result, yMax],
+  )
+
+  // Balances are points at each birthday; spending is flat through each year, so draw it as steps
+  const step = series !== 'balance'
+  const points = (vals: number[]): [number, number][] => {
+    if (!step) return vals.map((v, k) => [k, v])
+    const out: [number, number][] = []
+    vals.forEach((v, k) => out.push([k, v], [k + 1, v]))
+    return out
+  }
+
+  // Spaghetti lines on canvas (fast for ~2,000 paths)
+  useEffect(() => {
+    const c = canvasRef.current
+    if (!c) return
+    const dpr = window.devicePixelRatio || 1
+    c.width = width * dpr
+    c.height = HEIGHT * dpr
+    const ctx = c.getContext('2d')!
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, width, HEIGHT)
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(M.left, M.top, innerW, innerH)
+    ctx.clip()
+    const dark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
+    data.forEach((vals, i) => {
+      const p = result.paths[i]
+      if (!visible(i)) return
+      // Vary the shade per path like the reference design
+      const shade = (i * 37) % 100
+      const light = dark ? 45 + shade * 0.35 : 30 + shade * 0.45
+      // ~2,000 overlapping paths: keep each faint so density shows where outcomes cluster
+      const alpha = Math.min(0.6, 45 / drawnCount + 0.05)
+      ctx.strokeStyle = `hsla(${215 + (shade % 20)}, ${12 + (shade % 25)}%, ${light}%, ${p.partial ? alpha * 0.7 : alpha})`
+      ctx.lineWidth = 0.9
+      ctx.setLineDash(p.partial ? [3, 3] : [])
+      ctx.beginPath()
+      points(vals).forEach(([k, v], j) => (j === 0 ? ctx.moveTo(xOf(k), yOf(v)) : ctx.lineTo(xOf(k), yOf(v))))
+      ctx.stroke()
+    })
+    ctx.restore()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, width, yMax, yMin, legend.partial, result, step, drawn, drawnCount])
+
+  const linePath = (vals: number[]) =>
+    points(vals).map(([k, v], j) => `${j === 0 ? 'M' : 'L'}${xOf(k).toFixed(1)},${yOf(v).toFixed(1)}`).join('')
+  const areaPath = (lo: number, hi: number) => {
+    const top = points(bands.map((b) => b[hi]))
+    const bottom = points(bands.map((b) => b[lo])).reverse()
+    return [...top, ...bottom].map(([k, v], j) => `${j === 0 ? 'M' : 'L'}${xOf(k).toFixed(1)},${yOf(v).toFixed(1)}`).join('') + 'Z'
+  }
+
+  const yTicks = useMemo(() => {
+    const raw = (yMax - yMin) / 6
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)))
+    const step = [1, 2, 2.5, 5, 10].map((s) => s * mag).find((s) => s >= raw) ?? raw
+    const ticks = []
+    for (let v = Math.ceil(yMin / step) * step; v <= yMax + 1e-9; v += step) ticks.push(v)
+    return ticks
+  }, [yMax, yMin])
+
+  const xEvery = innerW / years < 18 ? (innerW / years < 9 ? 5 : 2) : 1
+
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!legend.calendar) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const mx = e.clientX - rect.left
+    const my = e.clientY - rect.top
+    const kMax = step ? years - 1 : years
+    const pos = ((mx - M.left) / innerW) * years
+    const k = Math.max(0, Math.min(kMax, step ? Math.floor(pos) : Math.round(pos)))
+    let best = -1
+    let bestDist = Infinity
+    data.forEach((vals, i) => {
+      if (!visible(i) || k >= vals.length) return
+      const d = Math.abs(yOf(vals[k]) - my)
+      if (d < bestDist) {
+        bestDist = d
+        best = i
+      }
+    })
+    setHover(best >= 0 && bestDist < 40 ? { index: best, k, x: mx, y: my } : null)
+  }
+
+  const active = hover?.index ?? selected
+  const activePath = active != null ? result.paths[active] : null
+
+  const named: { key: keyof LegendState; index: number | null; color: string }[] = [
+    { key: 'best', index: result.bestIndex, color: COLORS.best },
+    { key: 'median', index: result.medianIndex, color: COLORS.median },
+    { key: 'worst', index: result.worstIndex, color: COLORS.worst },
+  ]
+
+  return (
+    <div className="chart-wrap" ref={wrapRef}>
+      <canvas ref={canvasRef} style={{ width, height: HEIGHT }} className="chart-canvas" />
+      <svg
+        width={width}
+        height={HEIGHT}
+        className="chart-svg"
+        onMouseMove={onMove}
+        onMouseLeave={() => setHover(null)}
+        onClick={() => onSelect(hover ? (hover.index === selected ? null : hover.index) : null)}
+        role="img"
+        aria-label={`${series === 'balance' ? 'Portfolio balance' : series === 'income' ? 'Annual spending' : 'Yearly withdrawals from the pot'} for every historical start month`}
+      >
+        <defs>
+          <clipPath id="plot-clip">
+            <rect x={M.left} y={M.top} width={innerW} height={innerH} />
+          </clipPath>
+        </defs>
+
+        {yTicks.map((v) => (
+          <g key={v}>
+            <line x1={M.left} x2={M.left + innerW} y1={yOf(v)} y2={yOf(v)} className="grid" />
+            <text x={M.left - 8} y={yOf(v)} className="tick" textAnchor="end" dominantBaseline="middle">
+              {fmt.gbpShort(v)}
+            </text>
+          </g>
+        ))}
+
+        {Array.from({ length: years + 1 }, (_, k) => k)
+          .filter((k) => k % xEvery === 0 || k === years)
+          .map((k) => (
+            <text key={k} x={xOf(k)} y={M.top + innerH + 18} className="tick" textAnchor="middle">
+              {input.retirementAge + k}
+            </text>
+          ))}
+        <text x={M.left + innerW / 2} y={HEIGHT - 6} className="axis-title" textAnchor="middle">
+          Age
+        </text>
+
+        <line x1={xOf(0)} x2={xOf(0)} y1={M.top} y2={M.top + innerH} className="retire-line" />
+        <text transform={`translate(${xOf(0) + 12},${M.top + 6}) rotate(-90)`} className="retire-label" textAnchor="end">
+          Retirement age
+        </text>
+
+        {aboveTop > 0 && (
+          <text x={M.left + 26} y={M.top + 12} className="clip-note">
+            ▲ {aboveTop} {aboveTop === 1 ? 'line goes' : 'lines go'} above {fmt.gbpShort(yMax)} – zoom out (−) to see
+          </text>
+        )}
+
+        <g clipPath="url(#plot-clip)">
+          {legend.rare && <path d={areaPath(0, 6)} fill={COLORS.band} opacity={0.22} />}
+          {legend.lessLikely && <path d={areaPath(1, 5)} fill={COLORS.band} opacity={0.3} />}
+          {legend.likely && <path d={areaPath(2, 4)} fill={COLORS.band} opacity={0.42} />}
+          {named.map(({ key, index, color }) =>
+            legend[key] && index != null ? (
+              <path key={key} d={linePath(data[index])} stroke={color} strokeWidth={2.4} fill="none" />
+            ) : null,
+          )}
+          {activePath && active != null && (
+            <path d={linePath(data[active])} stroke={COLORS.hover} strokeWidth={2.4} fill="none"
+              strokeDasharray={activePath.partial ? '5 4' : undefined} />
+          )}
+        </g>
+
+        <line x1={M.left} x2={M.left + innerW} y1={yOf(0)} y2={yOf(0)} className="axis" />
+
+        {legend.oneOffs &&
+          input.oneOffs
+            .filter((o) => o.age >= input.retirementAge && o.age < input.deathAge)
+            .map((o, i) => {
+              const x = xOf(o.age - input.retirementAge)
+              const y = M.top + innerH
+              return (
+                <g key={i}>
+                  <path d={`M${x},${y - 6} L${x + 6},${y} L${x},${y + 6} L${x - 6},${y}Z`} className={o.amount >= 0 ? 'oneoff-out' : 'oneoff-in'} />
+                  <title>{`${o.label || 'One-off'} at ${o.age}: ${o.amount >= 0 ? 'spend' : 'add'} ${fmt.gbp(Math.abs(o.amount))}`}</title>
+                </g>
+              )
+            })}
+        {legend.oneOffs &&
+          input.flows
+            .filter((f) => f.startAge > input.retirementAge && f.startAge < input.deathAge)
+            .map((f, i) => {
+              const x = xOf(f.startAge - input.retirementAge)
+              const y = M.top + innerH
+              const up = f.kind === 'Income'
+              return (
+                <g key={`f${i}`}>
+                  <path d={up ? `M${x - 6},${y + 5} L${x + 6},${y + 5} L${x},${y - 6}Z` : `M${x - 6},${y - 5} L${x + 6},${y - 5} L${x},${y + 6}Z`}
+                    className={up ? 'oneoff-in' : 'oneoff-out'} />
+                  <title>{`${f.label || (up ? 'Income' : 'Outgoing')} from ${f.startAge}${f.endAge ? ` to ${f.endAge}` : ''}: ${fmt.gbp(f.annualAmount)} a year`}</title>
+                </g>
+              )
+            })}
+
+        {hover && activePath && (
+          <circle cx={xOf(hover.k + (step ? 0.5 : 0))} cy={yOf(data[hover.index][hover.k])} r={4} fill={COLORS.hover} />
+        )}
+      </svg>
+
+      {hover && activePath && (
+        <div className="tooltip" style={{ left: Math.min(hover.x + 14, width - 230), top: Math.max(8, hover.y - 90) }}>
+          <strong>Retired {fmt.month(activePath.start)}</strong>
+          <div>
+            Age {input.retirementAge + hover.k}: {fmt.gbp(data[hover.index][hover.k])}
+            {series === 'balance' && hover.k < activePath.spending.length && (
+              <> · spending {fmt.gbp(money === 'Nominal' ? toNominal(activePath.spending[hover.k], hover.k, infl) : activePath.spending[hover.k])}/yr</>
+            )}
+          </div>
+          <div className={activePath.failed ? 'bad' : activePath.partial ? 'muted' : 'good'}>
+            {activePath.failed
+              ? `Ran out at age ${Math.floor(activePath.failAge ?? 0)}`
+              : activePath.partial
+                ? `Still running – history ends after ${Math.floor(activePath.months / 12)} years`
+                : `Lasted – ${fmt.gbp(activePath.endBalance)} left (today's money)`}
+          </div>
+          <div className="muted small">Click to {selected === hover.index ? 'unpin' : 'pin'}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Rounds up to 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8 × a power of ten. */
+function niceCeil(v: number) {
+  const mag = Math.pow(10, Math.floor(Math.log10(v)))
+  const step = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((s) => s * mag >= v) ?? 10
+  return step * mag
+}
+
+/** Renders the chart's canvas + SVG into a PNG data URL. */
+export async function chartToPng(container: HTMLElement): Promise<string | null> {
+  const canvas = container.querySelector('canvas')
+  const svg = container.querySelector('svg')
+  if (!canvas || !svg) return null
+  const w = svg.width.baseVal.value
+  const h = svg.height.baseVal.value
+  const out = document.createElement('canvas')
+  out.width = w * 2
+  out.height = h * 2
+  const ctx = out.getContext('2d')!
+  ctx.scale(2, 2)
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface') || '#fff'
+  ctx.fillRect(0, 0, w, h)
+  ctx.drawImage(canvas, 0, 0, w, h)
+  const clone = svg.cloneNode(true) as SVGSVGElement
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  const style = document.createElement('style')
+  style.textContent = `text{font:12px Inter,system-ui,sans-serif;fill:#5b6475}.axis-title{font-weight:600;fill:#1f2937}.grid{stroke:#e5e7eb}.axis{stroke:#9ca3af}.retire-line{stroke:#9ca3af;stroke-dasharray:3 3}.oneoff-out{fill:#b23a3a}.oneoff-in{fill:#2e7d5b}`
+  clone.prepend(style)
+  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' }))
+  try {
+    const img = new Image()
+    await new Promise((res, rej) => {
+      img.onload = res
+      img.onerror = rej
+      img.src = url
+    })
+    ctx.drawImage(img, 0, 0, w, h)
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+  return out.toDataURL('image/png')
+}
