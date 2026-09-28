@@ -34,6 +34,9 @@ public enum RebalanceFrequency { Monthly, Quarterly, Annually }
 
 public enum WithdrawalTiming { Monthly, AnnualInAdvance }
 
+/// <summary>Which historical months are used as retirement start dates.</summary>
+public enum StartFrequency { Yearly, Monthly }
+
 public enum RuleMetric { TrailingReturn, DrawdownFromPeak, WithdrawalRate, BalanceVsInitial, Age }
 
 public enum RuleComparison { GreaterThan, LessThan }
@@ -223,6 +226,9 @@ public sealed class SimulationInput
     public double LegacyTarget { get; set; }
 
     public WithdrawalTiming WithdrawalTiming { get; set; } = WithdrawalTiming.Monthly;
+
+    /// <summary>Yearly: one start per calendar year (the first month available, normally January). Monthly: every month.</summary>
+    public StartFrequency StartFrequency { get; set; } = StartFrequency.Yearly;
     public SpendingParameters Spending { get; set; } = new();
     public InvestmentParameters Investment { get; set; } = new();
 

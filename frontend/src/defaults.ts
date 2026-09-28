@@ -20,6 +20,7 @@ export const defaultInput: SimulationInput = {
   spendingFloor: null,
   legacyTarget: 0,
   withdrawalTiming: 'Monthly',
+  startFrequency: 'Yearly',
   spending: {
     type: 'ConstantInflationAdjusted',
     initialRate: 0.04,
@@ -209,6 +210,9 @@ export const fmt = {
     return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
   },
 }
+
+/** "year" or "month": the unit of historical start dates in use. */
+export const startUnit = (input: SimulationInput) => (input.startFrequency === 'Monthly' ? 'month' : 'year')
 
 /** Converts a real (today's money) value at year k into nominal money using the planned inflation. */
 export const toNominal = (value: number, years: number, inflation: number) => value * Math.pow(1 + inflation, years)

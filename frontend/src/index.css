@@ -289,7 +289,6 @@ tr.clickable:hover td { background: var(--surface-2); }
 input[type='number']::-webkit-outer-spin-button,
 input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
-.swatch.many { background: repeating-linear-gradient(0deg, var(--text-2) 0 1px, transparent 1px 3px); height: 9px; }
 .chart-svg .clip-note { font-size: 11px; fill: var(--muted); }
 
 /* ---------- Strategy adjustments ---------- */
@@ -302,3 +301,48 @@ input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
 .adjustment-desc { margin: 2px 0 0 24px; font-size: 12px; color: var(--text-2); }
 .adjustment-body { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .adjustment.on .input-wrap, .adjustment.on select { background: var(--surface); }
+
+button.kf.clickable { text-align: left; font: inherit; color: inherit; cursor: pointer; }
+button.kf.clickable:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+.pinned-tag { position: absolute; left: 80px; top: 34px; background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 6px; padding: 4px 8px; font-size: 12px; display: flex; gap: 6px; align-items: center; box-shadow: var(--shadow); }
+
+/* ---------- Ask Claude ---------- */
+.ask-setup { margin-top: 16px; display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.ask-setup-text { display: flex; flex-direction: column; gap: 2px; max-width: 560px; }
+.key-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.key-form input[type='password'] { border: 1px solid var(--border-strong); border-radius: 6px; padding: 7px 10px; width: 240px; max-width: 100%; background: var(--surface); font-family: ui-monospace, monospace; }
+.ask-panel { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+.ask-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ask-head h3 { margin: 0; }
+.ask-key { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.link.small { font-size: 12px; }
+.ask-log { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; max-height: 520px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; min-height: 120px; }
+.ask-empty { display: flex; flex-direction: column; gap: 8px; }
+.ask-empty p { margin: 0; }
+.ask-suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--border-strong); background: var(--surface); border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer; text-align: left; }
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.ask-msg { border-radius: 8px; padding: 8px 12px; max-width: 92%; font-size: 14px; }
+.ask-msg.user { align-self: flex-end; background: var(--accent); color: #fff; white-space: pre-wrap; }
+.ask-msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); }
+.ask-msg.error { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.ask-tools { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.tool-chip { font-size: 11px; background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 2px 6px; }
+.tool-chip.bad { background: var(--bad-soft); color: var(--bad); }
+.ask-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+.ask-status .spinner { margin-left: 0; }
+.ask-input { display: flex; gap: 8px; align-items: stretch; }
+.ask-input textarea { flex: 1; resize: vertical; border: 1px solid var(--border-strong); border-radius: 6px; padding: 8px 10px; font: inherit; background: var(--surface); color: var(--text); }
+.ask-input textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ask-note { margin: 0; }
+.prose-md > :first-child { margin-top: 0; }
+.prose-md > :last-child { margin-bottom: 0; }
+.prose-md p { margin: 0 0 8px; }
+.prose-md ul, .prose-md ol { margin: 0 0 8px; padding-left: 20px; }
+.prose-md table { margin: 6px 0 10px; width: auto; }
+.prose-md th, .prose-md td { padding: 4px 10px; }
+.prose-md h1, .prose-md h2, .prose-md h3 { font-size: 15px; margin: 10px 0 6px; }
+.prose-md code { background: var(--surface-2); padding: 1px 4px; border-radius: 3px; }
+.ask-key-error { flex-basis: 100%; }

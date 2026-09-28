@@ -22,6 +22,7 @@ export type InvestmentStrategyType =
 
 export type RebalanceFrequency = 'Monthly' | 'Quarterly' | 'Annually'
 export type WithdrawalTiming = 'Monthly' | 'AnnualInAdvance'
+export type StartFrequency = 'Yearly' | 'Monthly'
 export type RuleMetric = 'TrailingReturn' | 'DrawdownFromPeak' | 'WithdrawalRate' | 'BalanceVsInitial' | 'Age'
 export type RuleComparison = 'GreaterThan' | 'LessThan'
 export type RuleAction = 'AdjustPercent' | 'SetPercentOfBalance' | 'FreezeInflation' | 'ClampMin' | 'ClampMax'
@@ -114,6 +115,7 @@ export interface SimulationInput {
   spendingFloor: number | null
   legacyTarget: number
   withdrawalTiming: WithdrawalTiming
+  startFrequency: StartFrequency
   spending: SpendingParameters
   investment: InvestmentParameters
 }

@@ -1,7 +1,7 @@
 namespace Finance.Engine;
 
 /// <summary>
-/// Historical backtest: replays the plan from every month in history and counts how many paths
+/// Historical backtest: replays the plan from every year (or, optionally, every month) in history and counts how many paths
 /// keep money until the age of death.
 ///
 /// Everything runs in real terms (today's money): each month's nominal return is deflated by that
@@ -25,7 +25,12 @@ public static class Simulator
         var real = RealReturns.From(history);
         var paths = new List<PathResult>();
         for (var start = 0; start + MinimumMonths <= history.Count; start++)
+        {
+            // Yearly: only the first month of each calendar year (January, or the first month of data)
+            if (input.StartFrequency == StartFrequency.Yearly && start > 0 && history[start].Year == history[start - 1].Year)
+                continue;
             paths.Add(RunPath(input, real, start, history[start].Label));
+        }
 
         var result = Summarise(input, paths);
         result.DataLastMonth = history.Count > 0 ? history[^1].Label : null;

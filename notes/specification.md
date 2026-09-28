@@ -167,7 +167,7 @@ For each path, and for each month m from 0 to (death age − retirement age) × 
 7. **Record** balance, withdrawal and allocation for month m.
 
 ### 6.3 Paths and success rate
-- EN-01: Run one path for **every month in the dataset** as a start month.
+- EN-01: Run one path for **every year in the dataset** by default, starting in January, or the first month of data for 1871. The user can switch to **every month**, which gives about 12× more paths. The chart and every statistic always use the same set of start dates.
 - EN-02: A path is **complete** if start month + horizon ≤ the last month of data. Otherwise it is **partial** and ends at the latest data month.
 - EN-03: **Success % = complete paths that never failed ÷ complete paths.** Partial paths are excluded from this figure.
 - EN-04: Also report the number of complete paths, the number of partial paths, and how many partial paths **have already failed**. A partial path that has already failed is a known failure, so the UI should flag it (see open question Q3).

@@ -11,16 +11,16 @@ export function Explanation({ summary, onClose }: { summary: MarketSummary | nul
         </div>
         <div className="modal-body prose">
           <p>
-            Your plan is replayed as if you had retired at the start of <strong>every month in recorded market history</strong>
+            Your plan is replayed as if you had retired at the start of <strong>every year in recorded market history</strong>
             {summary?.firstMonth && <> since {fmt.month(summary.firstMonth)}</>}. Each line on the chart is one of those
-            start months. If the plan would have survived the worst times in history — 1929, the 1970s, 2000, 2008 — it is
+            start dates (January each year; you can switch to every month under Assumptions). If the plan would have survived the worst times in history — 1929, the 1970s, 2000, 2008 — it is
             more likely to survive whatever comes next.
           </p>
           <h3>Success rate</h3>
           <p>
-            The percentage of start months where your money lasted until the age of death (and left at least the amount you
-            set in "Leave at least"). Only start months with enough history to cover your <em>whole</em> retirement count.
-            More recent start months are still shown on the chart as dashed "partial" lines, but they are left out of the
+            The percentage of start dates where your money lasted until the age of death (and left at least the amount you
+            set in "Leave at least"). Only start dates with enough history to cover your <em>whole</em> retirement count.
+            More recent start dates are still shown on the chart as dashed "partial" lines, but they are left out of the
             percentage because we don't know how they end yet.
           </p>
           <h3>Real and nominal</h3>
@@ -59,7 +59,7 @@ export function Explanation({ summary, onClose }: { summary: MarketSummary | nul
           <p>
             Before 2010, "global shares" are approximated by US shares converted to pounds, and bonds by UK government
             bonds. Tax is not modelled. The server fetches new months automatically, so results can change a little as
-            recent start months become complete.
+            recent start dates become complete.
           </p>
           <p className="muted">
             For illustrative purposes only. Past performance is not a guide to future returns. This is not financial advice.

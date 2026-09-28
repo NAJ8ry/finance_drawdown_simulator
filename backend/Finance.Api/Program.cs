@@ -17,7 +17,12 @@ builder.Services.AddControllers().AddJsonOptions(o =>
     o.JsonSerializerOptions.NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals;
 });
 builder.Services.AddProblemDetails();
-builder.Services.AddResponseCompression(o => o.EnableForHttps = true);
+builder.Services.AddResponseCompression(o =>
+{
+    o.EnableForHttps = true;
+    // Server-sent events must not be buffered by compression
+    o.MimeTypes = Microsoft.AspNetCore.ResponseCompression.ResponseCompressionDefaults.MimeTypes.Where(m => m != "text/event-stream");
+});
 
 builder.Services.Configure<MarketDataOptions>(builder.Configuration.GetSection("MarketData"));
 builder.Services.AddSingleton<MarketDataStore>();
@@ -28,6 +33,8 @@ builder.Services.AddHttpClient<LiveMarketDataSource>(c =>
     c.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (X11; Linux x86_64) FinanceSimulator/1.0");
 });
 builder.Services.AddSingleton<MarketDataUpdater>();
+builder.Services.Configure<AskOptions>(builder.Configuration.GetSection("Anthropic"));
+builder.Services.AddSingleton<AskService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MarketDataUpdater>());
 
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
@@ -49,6 +56,8 @@ app.UseCors();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapControllers();
+// Unknown API routes are a 404, not the single-page app
+app.Map("/api/{**rest}", () => Results.NotFound());
 app.MapFallbackToFile("index.html");
 
 app.Run();

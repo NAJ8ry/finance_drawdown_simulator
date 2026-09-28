@@ -15,7 +15,6 @@ export interface LegendState {
   calendar: boolean
   oneOffs: boolean
   partial: boolean
-  allMonths: boolean
 }
 
 export const defaultLegend: LegendState = {
@@ -28,7 +27,6 @@ export const defaultLegend: LegendState = {
   calendar: true,
   oneOffs: true,
   partial: true,
-  allMonths: false,
 }
 
 interface Props {
@@ -107,23 +105,11 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
   const xOf = (k: number) => M.left + (k / years) * innerW
   const yOf = (v: number) => M.top + innerH - ((Math.max(Math.min(v, yMax * 1.5), yMin * 1.5) - yMin) / (yMax - yMin)) * innerH
 
-  // Every start month counts in the analysis, but by default only one line per year is drawn (the first start month of
-  // each calendar year) to keep the chart readable
-  const drawn = useMemo(() => {
-    if (legend.allMonths) return result.paths.map(() => true)
-    let lastYear = ''
-    return result.paths.map((p) => {
-      const year = p.start.slice(0, 4)
-      if (year === lastYear) return false
-      lastYear = year
-      return true
-    })
-  }, [result, legend.allMonths])
-  const drawnCount = useMemo(() => drawn.filter(Boolean).length, [drawn])
-  const visible = (i: number) => drawn[i] && (legend.partial || !result.paths[i].partial)
+  const drawnCount = result.paths.length
+  const visible = (i: number) => legend.partial || !result.paths[i].partial
   const aboveTop = useMemo(
-    () => data.filter((vals, i) => drawn[i] && (legend.partial || !result.paths[i].partial) && vals.some((v) => v > yMax)).length,
-    [data, drawn, legend.partial, result, yMax],
+    () => data.filter((vals, i) => (legend.partial || !result.paths[i].partial) && vals.some((v) => v > yMax)).length,
+    [data, legend.partial, result, yMax],
   )
 
   // Balances are points at each birthday; spending is flat through each year, so draw it as steps
@@ -167,7 +153,7 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
     })
     ctx.restore()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, width, yMax, yMin, legend.partial, result, step, drawn, drawnCount])
+  }, [data, width, yMax, yMin, legend.partial, result, step, drawnCount])
 
   const linePath = (vals: number[]) =>
     points(vals).map(([k, v], j) => `${j === 0 ? 'M' : 'L'}${xOf(k).toFixed(1)},${yOf(v).toFixed(1)}`).join('')
@@ -229,7 +215,7 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
         onMouseLeave={() => setHover(null)}
         onClick={() => onSelect(hover ? (hover.index === selected ? null : hover.index) : null)}
         role="img"
-        aria-label={`${series === 'balance' ? 'Portfolio balance' : series === 'income' ? 'Annual spending' : 'Yearly withdrawals from the pot'} for every historical start month`}
+        aria-label={`${series === 'balance' ? 'Portfolio balance' : series === 'income' ? 'Annual spending' : 'Yearly withdrawals from the pot'} for every historical start date`}
       >
         <defs>
           <clipPath id="plot-clip">
@@ -319,6 +305,16 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
         )}
       </svg>
 
+      {selected != null && !hover && result.paths[selected] && (
+        <div className="pinned-tag">
+          <strong>Pinned: retired {fmt.month(result.paths[selected].start)}</strong>
+          {' · '}
+          {result.paths[selected].failed
+            ? `ran out at ${Math.floor(result.paths[selected].failAge ?? 0)}`
+            : result.paths[selected].partial ? 'still running' : `${fmt.gbp(result.paths[selected].endBalance)} left`}
+          <button className="link" onClick={() => onSelect(null)}>clear</button>
+        </div>
+      )}
       {hover && activePath && (
         <div className="tooltip" style={{ left: Math.min(hover.x + 14, width - 230), top: Math.max(8, hover.y - 90) }}>
           <strong>Retired {fmt.month(activePath.start)}</strong>

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
+import { AskPanel } from './components/AskPanel'
 import { ComparePanel } from './components/ComparePanel'
 import { DataPanel } from './components/DataPanel'
 import { Explanation } from './components/Explanation'
 import { InputPanel } from './components/InputPanel'
 import { chartToPng, defaultLegend, PathChart, type LegendState, type Money, type Series } from './components/PathChart'
 import { AssumptionCards, Headline, KeyFigures, Legend, strategyTitle, Tables } from './components/ResultParts'
-import { defaultInput, fmt, mergeInput, toNominal } from './defaults'
+import { defaultInput, fmt, mergeInput, startUnit, toNominal } from './defaults'
 import type { MarketSummary, Scenario, SimulationInput, SimulationResult } from './types'
 
 type Tab = 'balance' | 'income' | 'tables' | 'compare' | 'data'
@@ -239,15 +240,17 @@ export default function App() {
               <p className="chart-note">
                 <span className="info-dot small">i</span>
                 {tab === 'balance'
-                  ? `This page shows what your portfolio could have been worth at each birthday if you had retired in ${legend.allMonths ? 'each month' : 'each year'} of history. The success rate and bands use every start month. Some market conditions are better than others. Ideally, your plan should be able to survive severe market conditions.`
+                  ? `This page shows what your portfolio could have been worth at each birthday if you had retired in each ${startUnit(input)} of history. The success rate, bands and figures use the same start dates. Some market conditions are better than others. Ideally, your plan should be able to survive severe market conditions.`
                   : spendingView === 'income'
-                    ? 'What you live on each year (from the pot plus pensions and other income) for every historical start month. Flat lines mean steady income; strategies that react to markets trade steadier pots for more variable income.'
+                    ? 'What you live on each year (from the pot plus pensions and other income) for every historical start date. Flat lines mean steady income; strategies that react to markets trade steadier pots for more variable income.'
                     : 'What is actually taken from the pot each year, after pensions and other income. Below zero means income exceeded spending and the surplus was invested.'}
               </p>
               <p className="disclaimer">For illustrative purposes only</p>
             </div>
           )}
-          {isChart && result && <KeyFigures result={result} input={input} />}
+          {isChart && result && (
+            <KeyFigures result={result} input={input} onSelect={(i) => { setSelected(i); setTab('balance'); chartRef.current?.scrollIntoView({ behavior: 'smooth' }) }} />
+          )}
           {tab === 'tables' && result && (
             <Tables result={result} input={input} onSelect={(i) => { setSelected(i); setTab('balance') }} />
           )}
@@ -255,9 +258,11 @@ export default function App() {
           {tab === 'data' && <DataPanel summary={summary} onRefreshed={() => { loadSummary(); setRunKey((k) => k + 1) }} />}
           {!result && !shownError && isChart && <div className="card placeholder">Running simulation…</div>}
 
+          <AskPanel input={input} />
+
           <footer className="footer muted small">
             {summary?.lastMonth && <>Market data up to {fmt.month(summary.lastMonth)} · </>}
-            {result && <>{result.paths.length.toLocaleString()} start months from {result.firstStart && fmt.month(result.firstStart)} · </>}
+            {result && <>{result.paths.length.toLocaleString()} start {startUnit(input)}s from {result.firstStart && fmt.month(result.firstStart)} · </>}
             Not financial advice. Past performance is not a guide to future returns.
           </footer>
         </main>

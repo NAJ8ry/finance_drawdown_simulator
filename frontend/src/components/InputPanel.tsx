@@ -53,9 +53,14 @@ export function InputPanel({ input, onChange }: Props) {
           <NumberField label="Fees" percent value={input.feeRate} step={0.05} min={0} max={5}
             onChange={(v) => set('feeRate', v ?? 0)} hint="Per year" />
         </div>
-        <SelectField label="Withdrawals taken" value={input.withdrawalTiming}
-          options={[{ value: 'Monthly', label: 'Monthly' }, { value: 'AnnualInAdvance', label: 'Yearly in advance' }]}
-          onChange={(v) => set('withdrawalTiming', v)} />
+        <div className="row-2">
+          <SelectField label="Withdrawals taken" value={input.withdrawalTiming}
+            options={[{ value: 'Monthly', label: 'Monthly' }, { value: 'AnnualInAdvance', label: 'Yearly in advance' }]}
+            onChange={(v) => set('withdrawalTiming', v)} />
+          <SelectField label="Test retiring in" value={input.startFrequency}
+            options={[{ value: 'Yearly', label: 'Every year (Jan)' }, { value: 'Monthly', label: 'Every month' }]}
+            onChange={(v) => set('startFrequency', v)} />
+        </div>
         <div className="row-2">
           <NumberField label="Leave at least" prefix="£" value={input.legacyTarget} min={0} step={1000}
             onChange={(v) => set('legacyTarget', v ?? 0)} hint="Needed for success" />

@@ -1,4 +1,4 @@
-import { fmt, investmentTitle, spendingTitle } from '../defaults'
+import { fmt, investmentTitle, spendingTitle, startUnit } from '../defaults'
 import type { SimulationInput, SimulationResult } from '../types'
 import type { LegendState } from './PathChart'
 
@@ -10,10 +10,10 @@ export function Headline({ result, input }: { result: SimulationResult; input: S
       <div className="big">{rate == null ? '–' : `${rate.toFixed(rate >= 99.95 || rate < 10 ? 0 : 1)}%`}</div>
       <div className="headline-text">
         {rate == null ? (
-          <>No start month has enough history to cover {input.deathAge - input.retirementAge} years.</>
+          <>No start {startUnit(input)} has enough history to cover {input.deathAge - input.retirementAge} years.</>
         ) : (
           <>
-            of historical start months lasted to age {input.deathAge}
+            of historical start {startUnit(input)}s lasted to age {input.deathAge}
             <span className="muted small">
               {' '}({result.successCount.toLocaleString()} of {result.completeCount.toLocaleString()} complete paths
               {input.legacyTarget > 0 && <>, leaving at least {fmt.gbp(input.legacyTarget)}</>})
@@ -71,31 +71,58 @@ export function AssumptionCards({ input }: { input: SimulationInput }) {
   )
 }
 
-export function KeyFigures({ result, input }: { result: SimulationResult; input: SimulationInput }) {
-  const items: [string, string, string?][] = [
-    ['Median balance at death', fmt.gbp(result.medianEndBalance), "today's money"],
-    ['1 in 10 paths end below', fmt.gbp(result.p10EndBalance), 'at death'],
-    ['Earliest run-out age', result.worstDepletionAge == null ? 'Never' : String(Math.floor(result.worstDepletionAge))],
-    ['Median average spending', fmt.gbp(result.medianAverageSpending), 'per year'],
-    ['Lowest yearly spending', fmt.gbp(result.minimumSpending)],
-    ['Median worst fall', fmt.pct(result.medianMaxDrawdown, 0), 'peak to trough'],
+export function KeyFigures({ result, input, onSelect }: {
+  result: SimulationResult
+  input: SimulationInput
+  onSelect: (index: number) => void
+}) {
+  // The chart draws one line per year, but the figures use every start month, so name the month responsible
+  let worst: number | null = null
+  result.paths.forEach((p, i) => {
+    if (p.failed && (worst == null || (p.failAge ?? 0) < (result.paths[worst].failAge ?? 0))) worst = i
+  })
+  const failedCount = result.paths.filter((p) => p.failed).length
+
+  const items: { label: string; value: string; sub?: string; action?: () => void }[] = [
+    { label: 'Median balance at death', value: fmt.gbp(result.medianEndBalance), sub: "today's money" },
+    { label: '1 in 10 paths end below', value: fmt.gbp(result.p10EndBalance), sub: 'at death' },
+    worst == null
+      ? { label: 'Earliest run-out age', value: 'Never' }
+      : {
+          label: 'Earliest run-out age',
+          value: String(Math.floor(result.paths[worst].failAge ?? 0)),
+          sub: `if retired ${fmt.month(result.paths[worst].start)}${result.paths[worst].partial ? ' (partial)' : ''} · ${failedCount} of ${result.paths.length} start ${startUnit(input)}s ran out · show on chart`,
+          action: () => onSelect(worst!),
+        },
+    { label: 'Median average spending', value: fmt.gbp(result.medianAverageSpending), sub: 'per year' },
+    { label: 'Lowest yearly spending', value: fmt.gbp(result.minimumSpending) },
+    { label: 'Median worst fall', value: fmt.pct(result.medianMaxDrawdown, 0), sub: 'peak to trough' },
   ]
-  if (input.spendingFloor) items.push(['Dropped below minimum income', fmt.pct((result.belowFloorRate ?? 0) / 100, 0), 'of paths'])
+  if (input.spendingFloor)
+    items.push({ label: 'Dropped below minimum income', value: fmt.pct((result.belowFloorRate ?? 0) / 100, 0), sub: 'of paths' })
   if (result.partialCount > 0)
-    items.push([
-      'Recent start months (partial)',
-      `${result.partialCount}`,
-      result.partialFailedCount > 0 ? `${result.partialFailedCount} already ran out` : 'none have run out yet',
-    ])
+    items.push({
+      label: `Recent start ${startUnit(input)}s (partial)`,
+      value: `${result.partialCount}`,
+      sub: result.partialFailedCount > 0 ? `${result.partialFailedCount} already ran out` : 'none have run out yet',
+    })
   return (
     <div className="key-figures">
-      {items.map(([label, value, sub]) => (
-        <div className="kf" key={label}>
-          <div className="kf-value">{value}</div>
-          <div className="kf-label">{label}</div>
-          {sub && <div className="muted small">{sub}</div>}
-        </div>
-      ))}
+      {items.map(({ label, value, sub, action }) =>
+        action ? (
+          <button className="kf clickable" key={label} onClick={action} title="Show this start date on the chart">
+            <div className="kf-value">{value}</div>
+            <div className="kf-label">{label}</div>
+            {sub && <div className="muted small">{sub}</div>}
+          </button>
+        ) : (
+          <div className="kf" key={label}>
+            <div className="kf-value">{value}</div>
+            <div className="kf-label">{label}</div>
+            {sub && <div className="muted small">{sub}</div>}
+          </div>
+        ),
+      )}
     </div>
   )
 }
@@ -110,7 +137,6 @@ const legendItems: { key: keyof LegendState; label: string; swatch: string }[] =
   { key: 'calendar', label: 'Calendar year', swatch: 'line hover' },
   { key: 'oneOffs', label: 'One-offs / goals', swatch: 'dot oneoff' },
   { key: 'partial', label: 'Recent (partial)', swatch: 'line partial' },
-  { key: 'allMonths', label: 'Every month', swatch: 'line many' },
 ]
 
 export function Legend({ legend, onChange }: { legend: LegendState; onChange: (l: LegendState) => void }) {
@@ -151,7 +177,7 @@ export function Tables({ result, input, onSelect }: { result: SimulationResult; 
         </table>
       </div>
       <div className="card table-card">
-        <h3>Worst start months</h3>
+        <h3>Worst start {startUnit(input)}s</h3>
         <table>
           <thead>
             <tr><th>Retired</th><th>Outcome</th><th>Lowest balance</th><th>At age {input.deathAge}</th></tr>

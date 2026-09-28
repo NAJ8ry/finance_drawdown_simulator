@@ -74,7 +74,7 @@ public class SimulatorTests
     [Fact]
     public void Recent_start_months_are_partial_and_excluded_from_success_rate()
     {
-        var input = Input(i => i.Spending.InitialRate = 0.2); // fails after 5 years
+        var input = Input(i => { i.Spending.InitialRate = 0.2; i.StartFrequency = StartFrequency.Monthly; }); // fails after 5 years
         var result = Simulator.Run(input, Flat(150));             // 12.5 years of data, 10-year retirement
 
         Assert.Equal(31, result.CompleteCount);                   // starts 0..30 have 120 months
@@ -83,6 +83,17 @@ public class SimulatorTests
         // Partial paths with at least 5 years of data have already failed
         Assert.True(result.PartialFailedCount > 0);
         Assert.All(result.Paths.Where(p => p.Partial), p => Assert.False(p.Succeeded));
+    }
+
+    [Fact]
+    public void Yearly_starts_use_the_first_month_of_each_year()
+    {
+        // History starting in March: first start is March 1900, then January of each later year
+        var history = Enumerable.Range(2, 400).Select(i => new MarketMonth(1900 + i / 12, i % 12 + 1, 0, 0, 0, 0)).ToList();
+        var result = Simulator.Run(Input(), history);
+        Assert.Equal("1900-03", result.Paths[0].Start);
+        Assert.All(result.Paths.Skip(1), p => Assert.EndsWith("-01", p.Start));
+        Assert.Equal(result.Paths.Count, result.Paths.Select(p => p.Start[..4]).Distinct().Count());
     }
 
     [Fact]

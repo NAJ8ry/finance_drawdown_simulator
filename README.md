@@ -1,6 +1,6 @@
 # Retirement Drawdown Simulator
 
-Replays a retirement plan (spending strategy + investment strategy) from **every month in recorded market history since 1871** and reports the percentage of start months where the money lasted until the age of death.
+Replays a retirement plan (spending strategy + investment strategy) from **every year in recorded market history since 1871** (optionally every month) and reports the percentage of start months where the money lasted until the age of death.
 
 - **Backend:** .NET 10 Web API (`backend/`), EF Core + PostgreSQL
 - **Frontend:** React + TypeScript + Vite (`frontend/`)
@@ -60,6 +60,14 @@ python3 tools/build_history.py
   5. The portfolio is rebalanced if the investment strategy says so.
 - **Success rate** = complete paths that never ran out (and ended at or above "Leave at least") ÷ complete paths. Start months too recent to cover the whole retirement are drawn as dashed "partial" lines but are excluded from the percentage.
 
+## Ask Claude
+
+Below the analysis, visitors can chat with Claude (`claude-opus-5`) about their plan. Claude receives the current inputs and results. It can also call a `run_simulation` tool to test what-if changes, such as "spend £5k more from 67", against the same market history.
+
+- **Each visitor uses their own Anthropic API key.** They paste it into the "Ask Claude" field, and the chat panel only appears once a key is present. The key is kept in their browser (session storage, or local storage if they tick "Remember on this device"). It is sent in the `X-Anthropic-Key` header with each question, passed straight to Anthropic, and never stored or logged by the server.
+- **Optional server key.** Set `ANTHROPIC_API_KEY` (or `Anthropic:ApiKey` in `appsettings.Development.json`) to let anyone use the chat without their own key. Do this only for private deployments, because every question is then billed to you.
+- **Serve over HTTPS if the site is public.** Visitors' keys travel from the browser to your API.
+
 ## API
 
 | Method | Path | |
@@ -70,3 +78,5 @@ python3 tools/build_history.py
 | GET | `/api/market/updates` | Update log |
 | POST | `/api/market/refresh` | Fetch live data now |
 | GET/POST/PUT/DELETE | `/api/scenarios[/{id}]` | Saved scenarios |
+| GET | `/api/ask/status` | Whether the server has its own Anthropic key |
+| POST | `/api/ask` | Ask Claude (server-sent events). Optional `X-Anthropic-Key` header |
