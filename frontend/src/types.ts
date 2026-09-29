@@ -127,7 +127,13 @@ export interface SimulationInput {
   startingBalance: number
   retirementAge: number
   deathAge: number
+  /** Age today; null = retiring now. Future (nominal) pounds grow with inflation from this age. */
+  currentAge: number | null
+  /** Also judge the plan against UK life tables (ONS); 'Couple' = a man and a woman of the same age. */
+  lifeTable: LifeTable
   inflationRate: number
+  /** Change to every year's share return (-0.01 = 1% a year lower than history). */
+  equityReturnAdjustment: number
   feeRate: number
   allocation: Allocation
   oneOffs: OneOff[]
@@ -151,6 +157,11 @@ export interface PathResult {
   endBalance: number
   minBalance: number
   maxDrawdown: number
+  /** Years with an unplanned spending cut of 10%+, and the largest such cut (fraction). */
+  cuts: number
+  worstCut: number
+  yearsBelowFloor: number
+  yearsWithoutPot: number
   balances: number[]
   spending: number[]
   withdrawals: number[]
@@ -166,6 +177,8 @@ export interface PercentileBand {
   p90: number
   p95: number
 }
+
+export type LifeTable = 'None' | 'Male' | 'Female' | 'Couple'
 
 export interface SimulationResult {
   successRate: number | null
@@ -185,6 +198,18 @@ export interface SimulationResult {
   medianAverageSpending: number | null
   minimumSpending: number | null
   medianMaxDrawdown: number | null
+  /** % of paths with an unplanned one-year spending cut of 10%+, and the largest such cut (fraction). */
+  cutRate: number | null
+  worstCut: number | null
+  /** Of the paths that ran out: median and longest years lived on other income alone. */
+  medianYearsWithoutPot: number | null
+  maxYearsWithoutPot: number | null
+  /** Years below the spending minimum in the worst 1 in 10 paths. */
+  p90YearsBelowFloor: number | null
+  /** With a life table: % chance of running out while alive, % chance of outliving the age of death, and survival by age. */
+  lifetimeRuinRate: number | null
+  outliveHorizonRate: number | null
+  survival: number[] | null
   bestIndex: number | null
   medianIndex: number | null
   worstIndex: number | null

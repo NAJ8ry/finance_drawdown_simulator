@@ -51,6 +51,7 @@ export function ComparePanel({ current, currentResult, scenarios }: Props) {
     ['Investment strategy', (_, i) => investmentTitle(i.investment)],
     ['Mix (shares/bonds/cash)', (_, i) => `${Math.round(i.allocation.equity * 100)}/${Math.round(i.allocation.bond * 100)}/${Math.round(i.allocation.cash * 100)}`],
     ['Ages', (_, i) => `${i.retirementAge} → ${i.deathAge}`],
+    ['Share returns', (_, i) => (i.equityReturnAdjustment ? `${fmt.pctTrim(-i.equityReturnAdjustment)} a year below history` : 'As history')],
     ['Median balance at death', (r) => fmt.gbp(r.medianEndBalance)],
     ['Worst 10% at death', (r) => fmt.gbp(r.p10EndBalance)],
     ['Earliest run-out age', (r) => (r.worstDepletionAge == null ? 'Never' : String(Math.floor(r.worstDepletionAge)))],

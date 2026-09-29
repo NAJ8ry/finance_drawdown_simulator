@@ -1,3 +1,4 @@
+using Finance.Engine;
 using System.Text.Json.Serialization;
 using Finance.Api.Data;
 using Finance.Api.Services;
@@ -26,6 +27,8 @@ builder.Services.AddResponseCompression(o =>
 
 builder.Services.Configure<MarketDataOptions>(builder.Configuration.GetSection("MarketData"));
 builder.Services.AddSingleton<MarketDataStore>();
+// UK life tables (ONS, Open Government Licence) for lifespan-weighted results
+builder.Services.AddSingleton(Mortality.Load(Path.Combine(AppContext.BaseDirectory, "SeedData", "mortality_uk.csv")));
 builder.Services.AddHttpClient<LiveMarketDataSource>(c =>
 {
     c.Timeout = TimeSpan.FromSeconds(60);

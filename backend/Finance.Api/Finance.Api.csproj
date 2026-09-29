@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <None Include="SeedData\history.csv" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="SeedData\mortality_uk.csv" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

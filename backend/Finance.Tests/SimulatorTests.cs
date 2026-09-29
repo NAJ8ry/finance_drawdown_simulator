@@ -339,6 +339,47 @@ public class SimulatorTests
     }
 
     [Fact]
+    public void Cuts_count_unplanned_falls_but_not_scheduled_steps()
+    {
+        var input = Input(i =>
+        {
+            i.Spending.Type = SpendingStrategyType.FixedAmounts;
+            i.Spending.FixedAmount = 10_000;
+            i.Spending.AmountSteps = [new SpendingStep(63, 5_000)]; // planned 50% step down
+            i.Spending.UseGuytonKlinger = true;
+            i.SpendingFloor = 6_000;
+        });
+        // Shares fall 3% a month from year 5, so the guardrails start cutting
+        var months = Enumerable.Range(0, 120).Select(m => new MarketMonth(1900 + m / 12, m % 12 + 1, m >= 60 ? -0.03 : 0, 0, 0, 0)).ToList();
+        var r = Simulator.Run(input, months);
+        var p = r.Paths[0];
+        bool IsCut(int y) => p.Spending[y] <= p.Spending[y - 1] * 0.9 + 1e-6;
+        Assert.True(IsCut(3), "the step at 63 is a big fall...");
+        var unplanned = Enumerable.Range(1, p.Spending.Length - 1).Where(y => y != 3).Count(IsCut);
+        Assert.True(unplanned > 0, "guardrail cuts after the market fall should count");
+        Assert.Equal(unplanned, p.Cuts); // ...but only the unplanned ones are counted
+        Assert.Equal(p.Spending.Count(s => s < 6_000 - 1e-6), p.YearsBelowFloor);
+        Assert.Equal(100, r.CutRate);
+    }
+
+    [Fact]
+    public void Running_out_records_years_on_other_income()
+    {
+        var input = Input(i => i.Spending.InitialRate = 0.2); // runs out after 5 years of a 10-year retirement
+        var r = Simulator.Run(input, Flat(120));
+        Assert.Equal(5, r.Paths[0].YearsWithoutPot, 1);
+        Assert.Equal(5, r.MaxYearsWithoutPot!.Value, 1);
+    }
+
+    [Fact]
+    public void Share_returns_adjustment_lowers_every_year_by_that_much()
+    {
+        var input = Input(i => { i.Spending.InitialRate = 0; i.EquityReturnAdjustment = -0.02; i.DeathAge = 62; });
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(24), input.EquityReturnAdjustment), 0, "x");
+        Assert.Equal(100_000 * 0.98 * 0.98, path.EndBalance, 6);
+    }
+
+    [Fact]
     public void Deposit_does_not_trigger_the_ratchet()
     {
         var input = Input(i =>

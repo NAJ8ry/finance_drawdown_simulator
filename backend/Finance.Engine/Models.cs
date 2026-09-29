@@ -265,10 +265,28 @@ public sealed class SimulationInput
 {
     public double StartingBalance { get; set; } = 100_000;
     public int RetirementAge { get; set; } = 60;
+
+    /// <summary>
+    /// Your age today; null = retiring now. "Today's money" means today, so future (nominal) pounds grow with planned
+    /// inflation from this age. The simulation itself is unaffected: it runs in today's money from retirement.
+    /// </summary>
+    public int? CurrentAge { get; set; }
+
+    /// <summary>
+    /// Judge the plan against UK life tables as well: the chance of running out while still alive. The age of death
+    /// then acts as the planning horizon.
+    /// </summary>
+    public LifeTable LifeTable { get; set; } = LifeTable.None;
     public int DeathAge { get; set; } = 94;
 
     /// <summary>Planned constant inflation (0.025 = 2.5% p.a.). Used for the nominal view and inflation-skip rules.</summary>
     public double InflationRate { get; set; } = 0.025;
+
+    /// <summary>
+    /// Change to every year's share return, as a fraction a year (-0.01 = 1% a year lower). Share history before 2010 is
+    /// US shares, among the best performers anywhere; lowering it tests how much a plan depends on that.
+    /// </summary>
+    public double EquityReturnAdjustment { get; set; }
 
     /// <summary>Annual fees as a fraction of the balance.</summary>
     public double FeeRate { get; set; } = 0.005;

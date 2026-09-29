@@ -15,14 +15,16 @@ public static class Simulator
 
     const double Epsilon = 1e-6;
 
-    public static SimulationResult Run(SimulationInput input, IReadOnlyList<MarketMonth> history)
+    /// <param name="mortality">UK life tables, needed when <see cref="SimulationInput.LifeTable"/> is set.</param>
+    /// <param name="currentYear">This calendar year, to place the person in their cohort.</param>
+    public static SimulationResult Run(SimulationInput input, IReadOnlyList<MarketMonth> history, Mortality? mortality = null, int? currentYear = null)
     {
         input.Spending.Normalise();
         input.Investment.Normalise();
         var errors = Validate(input);
         if (errors.Count > 0) throw new ArgumentException(string.Join("; ", errors));
 
-        var real = RealReturns.From(history);
+        var real = RealReturns.From(history, input.EquityReturnAdjustment);
         var paths = new List<PathResult>();
         for (var start = 0; start + MinimumMonths <= history.Count; start++)
         {
@@ -34,7 +36,23 @@ public static class Simulator
 
         var result = Summarise(input, paths);
         result.DataLastMonth = history.Count > 0 ? history[^1].Label : null;
+        if (input.LifeTable != LifeTable.None && mortality is not null)
+            AddLifespan(input, result, mortality, currentYear ?? DateTime.UtcNow.Year);
         return result;
+    }
+
+    /// <summary>Weights each run-out by the chance of still being alive then (Milevsky &amp; Robinson's lifetime ruin).</summary>
+    static void AddLifespan(SimulationInput input, SimulationResult result, Mortality mortality, int currentYear)
+    {
+        var survival = mortality.Survival(input.LifeTable, input.CurrentAge ?? input.RetirementAge, currentYear,
+            input.RetirementAge, input.DeathAge);
+        result.Survival = survival;
+        result.OutliveHorizonRate = 100 * survival[^1];
+        var complete = result.Paths.Where(p => !p.Partial).ToList();
+        if (complete.Count == 0) return;
+        result.LifetimeRuinRate = 100 * complete
+            .Select(p => p.Failed && p.FailAge is { } age ? Mortality.At(survival, input.RetirementAge, age) : 0)
+            .Average();
     }
 
     public static PathResult RunPath(SimulationInput input, RealReturns real, int start, string label)
@@ -246,8 +264,45 @@ public static class Simulator
         return map;
     }
 
+    /// <summary>A fall in spending this big from one year to the next counts as a cut.</summary>
+    public const double CutThreshold = 0.10;
+
+    /// <summary>
+    /// Ages where the plan itself changes spending: rate changes, fixed-amount steps, and other income starting or
+    /// stopping. A fall at these ages is planned, so it is not counted as a cut.
+    /// </summary>
+    public static HashSet<int> PlannedChangeAges(SimulationInput input)
+    {
+        var p = input.Spending;
+        var ages = new HashSet<int>(p.Fixed ? p.AmountSteps.Select(s => s.Age) : p.RateChanges.Select(c => c.Age));
+        foreach (var f in input.Flows.Where(f => f.Kind == FlowKind.Income && !f.IntoPot))
+        {
+            ages.Add(f.StartAge);
+            if (f.EndAge is { } end) ages.Add(end);
+        }
+        return ages;
+    }
+
+    /// <summary>Fills in the per-path cut, floor and run-out measures.</summary>
+    static void MeasureStability(SimulationInput input, PathResult path, HashSet<int> planned)
+    {
+        var s = path.Spending;
+        for (var y = 1; y < s.Length; y++)
+        {
+            if (planned.Contains(input.RetirementAge + y) || s[y - 1] <= 0) continue;
+            var fall = 1 - s[y] / s[y - 1];
+            if (fall >= CutThreshold - Epsilon) path.Cuts++;
+            path.WorstCut = Math.Max(path.WorstCut, fall);
+        }
+        if (input.SpendingFloor is { } floor) path.YearsBelowFloor = s.Count(v => v < floor - Epsilon);
+        if (path.Failed && path.FailAge is { } age) path.YearsWithoutPot = Math.Max(0, input.DeathAge - age);
+    }
+
     static SimulationResult Summarise(SimulationInput input, List<PathResult> paths)
     {
+        var planned = PlannedChangeAges(input);
+        foreach (var p in paths) MeasureStability(input, p, planned);
+
         var complete = paths.Where(p => !p.Partial).ToList();
         var result = new SimulationResult
         {
@@ -281,6 +336,16 @@ public static class Simulator
         result.MedianAverageSpending = Percentile(complete.Select(p => p.Spending.Average()).ToArray(), 50);
         result.MinimumSpending = complete.Min(p => p.Spending.Min());
         result.MedianMaxDrawdown = Percentile(complete.Select(p => p.MaxDrawdown).ToArray(), 50);
+        result.CutRate = 100.0 * complete.Count(p => p.Cuts > 0) / complete.Count;
+        result.WorstCut = complete.Max(p => p.WorstCut);
+        var ranOut = complete.Where(p => p.Failed).Select(p => p.YearsWithoutPot).ToArray();
+        if (ranOut.Length > 0)
+        {
+            result.MedianYearsWithoutPot = Percentile(ranOut, 50);
+            result.MaxYearsWithoutPot = ranOut.Max();
+        }
+        if (input.SpendingFloor is > 0)
+            result.P90YearsBelowFloor = Percentile(complete.Select(p => (double)p.YearsBelowFloor).ToArray(), 90);
 
         var completeRanked = Enumerable.Range(0, paths.Count).Where(i => !paths[i].Partial).OrderBy(i => Rank(paths[i])).ToList();
         result.WorstIndex = completeRanked[0];
@@ -318,8 +383,10 @@ public static class Simulator
         if (i.RetirementAge is < 30 or > 100) e.Add("Retirement age must be between 30 and 100.");
         if (i.DeathAge <= i.RetirementAge) e.Add("Age of death must be after retirement age.");
         if (i.DeathAge > 120) e.Add("Age of death must be 120 or less.");
+        if (i.CurrentAge is { } now && (now < 16 || now > i.RetirementAge)) e.Add("Current age must be between 16 and your retirement age.");
         if (i.InflationRate is < -0.05 or > 0.2) e.Add("Planned inflation must be between -5% and 20%.");
         if (i.FeeRate is < 0 or > 0.05) e.Add("Fees must be between 0% and 5%.");
+        if (i.EquityReturnAdjustment is < -0.05 or > 0.05) e.Add("The share returns adjustment must be between -5% and +5% a year.");
         var a = i.Allocation;
         if (a.Equity < 0 || a.Bond < 0 || a.Cash < 0) e.Add("Allocation percentages cannot be negative.");
         if (Math.Abs(a.Equity + a.Bond + a.Cash - 1) > 0.001) e.Add("Allocation must add up to 100%.");
@@ -384,12 +451,14 @@ public sealed class RealReturns
     public required double[] Cash { get; init; }
     public int Count => Equity.Length;
 
-    public static RealReturns From(IReadOnlyList<MarketMonth> history)
+    /// <param name="equityAdjustment">Change to share returns, a fraction a year, spread evenly over the months.</param>
+    public static RealReturns From(IReadOnlyList<MarketMonth> history, double equityAdjustment = 0)
     {
         double Real(double nominal, double inflation) => (1 + nominal) / (1 + inflation) - 1;
+        var monthly = Math.Pow(1 + equityAdjustment, 1.0 / 12);
         return new RealReturns
         {
-            Equity = history.Select(h => Real(h.Equity, h.Inflation)).ToArray(),
+            Equity = history.Select(h => (1 + Real(h.Equity, h.Inflation)) * monthly - 1).ToArray(),
             Bond = history.Select(h => Real(h.Bond, h.Inflation)).ToArray(),
             Cash = history.Select(h => Real(h.Cash, h.Inflation)).ToArray(),
         };

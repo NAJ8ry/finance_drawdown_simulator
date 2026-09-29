@@ -1,4 +1,22 @@
-import type { DataUpdateLog, MarketMonth, MarketSummary, Scenario, SimulationInput, SimulationResult } from './types'
+import type { DataUpdateLog, MarketMonth, MarketSummary, Scenario, SimulationInput, SimulationResult, SpendingParameters } from './types'
+
+export interface SpendingPatternInfo {
+  id: string
+  label: string
+  description: string
+  source: string | null
+}
+
+export interface FitResponse {
+  feasible: boolean
+  spending: SpendingParameters
+  successRate: number | null
+  medianEndBalance: number | null
+  p10EndBalance: number | null
+  cutRate: number | null
+  lifetimeRuinRate: number | null
+  years: { age: number; fromPot: number; spending: number }[]
+}
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -21,6 +39,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   simulate: (input: SimulationInput, signal?: AbortSignal) =>
     request<SimulationResult>('/api/simulate', { method: 'POST', body: JSON.stringify(input), signal }),
+  spendingPatterns: () => request<SpendingPatternInfo[]>('/api/simulate/patterns'),
+  /** Either a minimum success rate, or (with life tables) a maximum chance of running out while alive. */
+  fitSpending: (input: SimulationInput, pattern: string, targetSuccess: number, maxLifetimeRuin: number | null = null) =>
+    request<FitResponse>('/api/simulate/fit', { method: 'POST', body: JSON.stringify({ input, pattern, targetSuccess, maxLifetimeRuin }) }),
   marketSummary: () => request<MarketSummary>('/api/market/summary'),
   marketMonths: () => request<MarketMonth[]>('/api/market/months'),
   marketUpdates: () => request<DataUpdateLog[]>('/api/market/updates'),

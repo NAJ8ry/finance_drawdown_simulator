@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <None Include="..\Finance.Api\SeedData\history.csv" Link="SeedData\history.csv" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Finance.Api\SeedData\mortality_uk.csv" Link="SeedData\mortality_uk.csv" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

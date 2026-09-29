@@ -27,7 +27,7 @@ public sealed record AskRequest(string Question, SimulationInput Input, List<Ask
 /// "Ask Claude" about the current plan. Claude sees the user's inputs and results, and can call
 /// <c>run_simulation</c> to test what-if changes against the same market history.
 /// </summary>
-public sealed class AskService(MarketDataStore store, IOptions<AskOptions> options, IOptions<JsonOptions> json, ILogger<AskService> logger)
+public sealed class AskService(MarketDataStore store, Mortality mortality, IOptions<AskOptions> options, IOptions<JsonOptions> json, ILogger<AskService> logger)
 {
     readonly AskOptions _o = options.Value;
     JsonSerializerOptions Json => json.Value.JsonSerializerOptions;
@@ -195,7 +195,7 @@ public sealed class AskService(MarketDataStore store, IOptions<AskOptions> optio
     /// <summary>Compact JSON summary of a simulation, all money in today's pounds.</summary>
     string RunSummary(SimulationInput input, string label, IReadOnlyList<MarketMonth> history)
     {
-        var r = Simulator.Run(input, history);
+        var r = Simulator.Run(input, history, mortality);
         var complete = r.Paths.Where(p => !p.Partial).ToList();
         var years = input.DeathAge - input.RetirementAge;
         var ages = Enumerable.Range(0, years + 1).Select(k => input.RetirementAge + k)
@@ -228,6 +228,12 @@ public sealed class AskService(MarketDataStore store, IOptions<AskOptions> optio
             medianAverageSpending = r.MedianAverageSpending is { } m ? Math.Round(m) : (double?)null,
             lowestYearlySpendingAnyPath = r.MinimumSpending is { } lo ? Math.Round(lo) : (double?)null,
             medianWorstFallPercent = r.MedianMaxDrawdown is { } dd ? Math.Round(dd * 100) : (double?)null,
+            pathsWithUnplannedSpendingCut10PctPercent = r.CutRate is { } cr ? Math.Round(cr, 1) : (double?)null,
+            biggestUnplannedOneYearCutPercent = r.WorstCut is { } wc ? Math.Round(wc * 100) : (double?)null,
+            ifRunsOutYearsOnOtherIncome = r.MaxYearsWithoutPot is { } my ? new { median = Math.Round(r.MedianYearsWithoutPot ?? 0, 1), longest = Math.Round(my, 1) } : null,
+            yearsBelowSpendingFloorWorst10Percent = r.P90YearsBelowFloor is { } yb ? Math.Round(yb) : (double?)null,
+            chanceOfRunningOutWhileAlivePercent = r.LifetimeRuinRate is { } lr ? Math.Round(lr, 1) : (double?)null,
+            chanceOfOutlivingDeathAgePercent = r.OutliveHorizonRate is { } oh ? Math.Round(oh, 1) : (double?)null,
             byAge = ages.Select(a =>
             {
                 var k = a - input.RetirementAge;
@@ -262,7 +268,9 @@ public sealed class AskService(MarketDataStore store, IOptions<AskOptions> optio
             (flows, oneOffs, spending.rules) REPLACE the current array entirely - so to add a flow, send the full list including
             the existing ones. Rates and percentages are fractions (0.04 = 4%). Money is £ per year in today's money.
 
-            SimulationInput fields: startingBalance, retirementAge, deathAge, inflationRate, feeRate,
+            SimulationInput fields: startingBalance, retirementAge, deathAge, currentAge (null = retiring now),
+            lifeTable ("None" | "Male" | "Female" | "Couple": also report the chance of running out while alive, using ONS UK life tables),
+            equityReturnAdjustment (fraction a year added to every share return, e.g. -0.01 = 1% a year lower than history), inflationRate, feeRate,
             allocation {equity, bond, cash} (fractions summing to 1), spendingFloor (nullable £/yr), legacyTarget (£),
             withdrawalTiming ("Monthly" | "AnnualInAdvance"), startFrequency ("Yearly" | "Monthly"),
             oneOffs [{age, amount (+ spend, - deposit), label}],
@@ -310,11 +318,17 @@ public sealed class AskService(MarketDataStore store, IOptions<AskOptions> optio
           through to the age of death, using real monthly market returns in GBP. Success = the pot never runs out
           (and ends at or above the "leave at least" legacy target). Only start dates with enough history to cover the
           whole retirement count towards the success rate; recent "partial" paths are shown but excluded.
-        - Everything is in today's money: each month's return is adjusted by that month's actual UK inflation. The
+          With a life table chosen, results also give the chance of running out while still alive (each run-out
+          weighted by the ONS chance of being alive at that age) and the chance of outliving the age of death.
+          Prefer these over the plain success rate when they are available.
+        - Everything is in today's money (if currentAge is set, "today" is that age; otherwise retirement): each
+          month's return is adjusted by that month's actual UK inflation. The
           user's constant planned inflation only affects the nominal display, fixed (non-inflation-linked) incomes, and
           "skip inflation rise" rules.
         - Data: equities are US shares converted to GBP before 2010 (a proxy for global shares) and the MSCI World
           ETF after; bonds are UK gilts; cash is UK T-bills/Bank Rate; inflation is UK CPI. Tax is not modelled.
+          US shares were among the best performers anywhere, so results may flatter; equityReturnAdjustment (e.g.
+          -0.01) tests how much a plan relies on that. Suggest it when a plan only just works.
         - Spending = a base strategy (constant inflation-adjusted, percentage of the pot, fixed amounts from the pot that
           change at chosen ages, or spend-down) plus optional
           adjustments applied each year in order: skip inflation after a loss, Guyton-Klinger guardrails (based on the withdrawal rate

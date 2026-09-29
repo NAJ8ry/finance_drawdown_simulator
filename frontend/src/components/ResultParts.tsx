@@ -2,7 +2,27 @@ import { fmt, investmentTitle, spendingTitle, startUnit } from '../defaults'
 import type { SimulationInput, SimulationResult } from '../types'
 import type { LegendState } from './PathChart'
 
+const LIFE_TABLE_WHO: Record<string, string> = { Male: 'a man', Female: 'a woman', Couple: 'a couple, while either is alive' }
+
 export function Headline({ result, input }: { result: SimulationResult; input: SimulationInput }) {
+  const ruin = result.lifetimeRuinRate
+  if (ruin != null) {
+    // With life tables the chance of running out while alive is the main answer; the success rate becomes the detail
+    const tone = ruin <= 5 ? 'good' : ruin <= 15 ? 'warn' : 'bad'
+    return (
+      <div className={`card headline ${tone}`}>
+        <div className="big">{`${ruin.toFixed(ruin < 10 ? 1 : 0)}%`}</div>
+        <div className="headline-text">
+          chance of running out of money while alive
+          <span className="muted small">
+            {' '}(UK life tables, {LIFE_TABLE_WHO[input.lifeTable]}) · lasted to {input.deathAge} in{' '}
+            {result.successRate == null ? '–' : `${result.successRate.toFixed(0)}%`} of start {startUnit(input)}s ·{' '}
+            {fmt.pct((result.outliveHorizonRate ?? 0) / 100, 0)} chance of living past {input.deathAge}
+          </span>
+        </div>
+      </div>
+    )
+  }
   const rate = result.successRate
   const tone = rate == null ? '' : rate >= 90 ? 'good' : rate >= 75 ? 'warn' : 'bad'
   return (
@@ -59,6 +79,7 @@ export function AssumptionCards({ input }: { input: SimulationInput }) {
             ? `Shares ${Math.round(input.investment.startEquity * 100)}% → ${Math.round(input.investment.endEquity * 100)}%`
             : mix}</li>
           <li>{fmt.pctTrim(input.feeRate)} fees · {fmt.pctTrim(input.inflationRate)} inflation</li>
+          {input.equityReturnAdjustment ? <li>Share returns {fmt.pctTrim(-input.equityReturnAdjustment)} a year below history</li> : null}
           <li>No tax · {investmentTitle(input.investment)}</li>
         </ul>
       </div>
@@ -94,6 +115,13 @@ export function KeyFigures({ result, input, onSelect }: {
   const failedCount = result.paths.filter((p) => p.failed).length
 
   const items: { label: string; value: string; sub?: string; action?: () => void }[] = [
+    ...(result.outliveHorizonRate != null
+      ? [{
+          label: `Chance of living past ${input.deathAge}`,
+          value: fmt.pct(result.outliveHorizonRate / 100, 0),
+          sub: result.outliveHorizonRate > 5 ? 'consider planning to a later age' : 'ONS life tables',
+        }]
+      : []),
     { label: 'Median balance at death', value: fmt.gbp(result.medianEndBalance), sub: "today's money" },
     { label: '1 in 10 paths end below', value: fmt.gbp(result.p10EndBalance), sub: 'at death' },
     worst == null
@@ -108,8 +136,24 @@ export function KeyFigures({ result, input, onSelect }: {
     { label: 'Lowest yearly spending', value: fmt.gbp(result.minimumSpending) },
     { label: 'Median worst fall', value: fmt.pct(result.medianMaxDrawdown, 0), sub: 'peak to trough' },
   ]
+  if (result.cutRate != null)
+    items.push({
+      label: 'Spending cut 10%+ in a year',
+      value: fmt.pct(result.cutRate / 100, 0),
+      sub: result.cutRate > 0 ? `of paths · biggest cut ${fmt.pct(result.worstCut, 0)} · planned changes not counted` : 'of paths · planned changes not counted',
+    })
+  if (result.maxYearsWithoutPot != null)
+    items.push({
+      label: 'If it runs out: years on other income only',
+      value: `${Math.round(result.medianYearsWithoutPot ?? 0)}`,
+      sub: `typical · up to ${Math.round(result.maxYearsWithoutPot)} years`,
+    })
   if (input.spendingFloor)
-    items.push({ label: 'Dropped below minimum income', value: fmt.pct((result.belowFloorRate ?? 0) / 100, 0), sub: 'of paths' })
+    items.push({
+      label: 'Dropped below minimum income',
+      value: fmt.pct((result.belowFloorRate ?? 0) / 100, 0),
+      sub: `of paths${result.p90YearsBelowFloor ? ` · 1 in 10 spend ${Math.round(result.p90YearsBelowFloor)}+ years below it` : ''}`,
+    })
   if (result.partialCount > 0)
     items.push({
       label: `Recent start ${startUnit(input)}s (partial)`,
@@ -138,6 +182,7 @@ export function KeyFigures({ result, input, onSelect }: {
 }
 
 const legendItems: { key: keyof LegendState; label: string; swatch: string }[] = [
+  { key: 'paths', label: 'All start dates', swatch: 'line paths' },
   { key: 'best', label: 'Best case', swatch: 'line best' },
   { key: 'median', label: 'Median', swatch: 'line median' },
   { key: 'worst', label: 'Worst case', swatch: 'line worst' },
@@ -145,17 +190,43 @@ const legendItems: { key: keyof LegendState; label: string; swatch: string }[] =
   { key: 'lessLikely', label: 'Less likely', swatch: 'dot less' },
   { key: 'rare', label: 'Rare', swatch: 'dot rare' },
   { key: 'calendar', label: 'Calendar year', swatch: 'line hover' },
-  { key: 'oneOffs', label: 'One-offs / goals', swatch: 'dot oneoff' },
+  { key: 'oneOffs', label: 'One-offs, income & outgoings', swatch: 'markers' },
   { key: 'partial', label: 'Recent (partial)', swatch: 'line partial' },
 ]
 
-export function Legend({ legend, onChange }: { legend: LegendState; onChange: (l: LegendState) => void }) {
+/** The chart's markers: one-off (diamond), income starting (up triangle), outgoing starting (down triangle). */
+function MarkerSwatch() {
+  return (
+    <svg className="swatch-markers" width="38" height="12" viewBox="0 0 38 12" aria-hidden="true">
+      <path d="M6,0 L12,6 L6,12 L0,6Z" className="oneoff-out" />
+      <path d="M13,11 L25,11 L19,1Z" className="oneoff-in" />
+      <path d="M26,1 L38,1 L32,11Z" className="oneoff-out" />
+    </svg>
+  )
+}
+
+/** The spending chart's legend only offers one-offs; everything else is fixed (lines and hover on, ranges off). */
+export const spendingHiddenLegend: (keyof LegendState)[] =
+  ['paths', 'calendar', 'best', 'median', 'worst', 'likely', 'lessLikely', 'rare', 'partial']
+
+export function Legend({ legend, onChange, hide = [] }: {
+  legend: LegendState
+  onChange: (l: LegendState) => void
+  /** Items to leave out of this chart's legend. */
+  hide?: (keyof LegendState)[]
+}) {
   return (
     <div className="legend">
-      {legendItems.map((i) => (
+      {legendItems.filter((i) => !hide.includes(i.key)).map((i) => (
         <button key={i.key} className={`legend-item${legend[i.key] ? ' on' : ''}`} aria-pressed={legend[i.key]}
-          onClick={() => onChange({ ...legend, [i.key]: !legend[i.key] })}>
-          <span className={`swatch ${i.swatch}`} />
+          onClick={() => {
+            const next = { ...legend, [i.key]: !legend[i.key] }
+            // Hiding the lines with no ranges showing would leave an empty chart, so show the ranges
+            if (i.key === 'paths' && !next.paths && !next.likely && !next.lessLikely && !next.rare)
+              Object.assign(next, { likely: true, lessLikely: true, rare: true })
+            onChange(next)
+          }}>
+          {i.swatch === 'markers' ? <MarkerSwatch /> : <span className={`swatch ${i.swatch}`} />}
           {i.label}
         </button>
       ))}

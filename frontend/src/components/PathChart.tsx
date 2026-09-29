@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, toNominal } from '../defaults'
+import { flowsAt, fmt, toNominal, yearsFromToday } from '../defaults'
 import type { PathResult, SimulationInput, SimulationResult } from '../types'
 
 export type Series = 'balance' | 'income' | 'withdrawal'
 export type Money = 'Real' | 'Nominal'
 
 export interface LegendState {
+  /** One faint line per historical start date. */
+  paths: boolean
   best: boolean
   median: boolean
   worst: boolean
@@ -18,6 +20,7 @@ export interface LegendState {
 }
 
 export const defaultLegend: LegendState = {
+  paths: true,
   best: false,
   median: false,
   worst: false,
@@ -76,9 +79,9 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
   const data = useMemo(() => {
     return result.paths.map((p) => {
       const raw = series === 'balance' ? p.balances : series === 'income' ? p.spending : p.withdrawals
-      return money === 'Nominal' ? raw.map((v, k) => toNominal(v, k, infl)) : raw
+      return money === 'Nominal' ? raw.map((v, k) => toNominal(v, yearsFromToday(input, k), infl)) : raw
     })
-  }, [result, series, money, infl])
+  }, [result, series, money, infl, input])
 
   const bands = useMemo(() => {
     const complete = result.paths.map((p, i) => (p.partial ? -1 : i)).filter((i) => i >= 0)
@@ -109,10 +112,10 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
   const yOf = (v: number) => M.top + innerH - ((Math.max(Math.min(v, yMax * 1.5), yMin * 1.5) - yMin) / (yMax - yMin)) * innerH
 
   const drawnCount = result.paths.length
-  const visible = (i: number) => legend.partial || !result.paths[i].partial
+  const visible = (i: number) => legend.paths && (legend.partial || !result.paths[i].partial)
   const aboveTop = useMemo(
-    () => data.filter((vals, i) => (legend.partial || !result.paths[i].partial) && vals.some((v) => v > yMax)).length,
-    [data, legend.partial, result, yMax],
+    () => (legend.paths ? data.filter((vals, i) => (legend.partial || !result.paths[i].partial) && vals.some((v) => v > yMax)).length : 0),
+    [data, legend.paths, legend.partial, result, yMax],
   )
 
   // Balances are points at each birthday; spending is flat through each year, so draw it as steps
@@ -156,7 +159,7 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
     })
     ctx.restore()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, width, yMax, yMin, legend.partial, result, step, drawnCount])
+  }, [data, width, yMax, yMin, legend.paths, legend.partial, result, step, drawnCount])
 
   const linePath = (vals: number[]) =>
     points(vals).map(([k, v], j) => `${j === 0 ? 'M' : 'L'}${xOf(k).toFixed(1)},${yOf(v).toFixed(1)}`).join('')
@@ -190,7 +193,7 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
     const k = Math.max(0, Math.min(kMax, step ? Math.floor(pos) : Math.round(pos)))
     // Only pick a line from inside the plot and right on top of it; the age axis and gaps show the year summary
     let best: number | null = null
-    if (legend.calendar && my >= M.top && my <= M.top + innerH) {
+    if (legend.paths && legend.calendar && my >= M.top && my <= M.top + innerH) {
       let bestDist = PICK_DISTANCE
       data.forEach((vals, i) => {
         if (!visible(i) || k >= vals.length) return
@@ -339,7 +342,7 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
           <div>
             Age {input.retirementAge + hover.k}: {fmt.gbp(data[picked][hover.k])}
             {series === 'balance' && hover.k < activePath.spending.length && (
-              <> · spending {fmt.gbp(money === 'Nominal' ? toNominal(activePath.spending[hover.k], hover.k, infl) : activePath.spending[hover.k])}/yr</>
+              <> · spending {fmt.gbp(money === 'Nominal' ? toNominal(activePath.spending[hover.k], yearsFromToday(input, hover.k), infl) : activePath.spending[hover.k])}/yr</>
             )}
           </div>
           <div className={activePath.failed ? 'bad' : activePath.partial ? 'muted' : 'good'}>
@@ -373,19 +376,10 @@ function YearSummary({ result, input, k, money, x, y, width }: {
 }) {
   const age = input.retirementAge + k
   const years = input.deathAge - input.retirementAge
-  const cash = (v: number) => fmt.gbp(money === 'Nominal' ? toNominal(v, k, input.inflationRate) : v)
+  const cash = (v: number) => fmt.gbp(money === 'Nominal' ? toNominal(v, yearsFromToday(input, k), input.inflationRate) : v)
   const complete = result.paths.filter((p) => !p.partial)
 
-  const flows = input.flows
-    .filter((f) => age >= f.startAge && age < (f.endAge ?? input.deathAge))
-    .map((f) => ({
-      label: (f.label || (f.kind === 'Income' ? 'Income' : 'Outgoing')) + (f.kind === 'Income' && f.intoPot ? ' (into the pot)' : ''),
-      kind: f.kind,
-      // Fixed amounts lose value at the planned inflation rate from their start, as in the simulator
-      amount: f.inflationLinked
-        ? f.annualAmount
-        : f.annualAmount / Math.pow(1 + input.inflationRate, age - Math.max(f.startAge, input.retirementAge)),
-    }))
+  const flows = flowsAt(input, age).map((f) => ({ ...f, label: f.label + (f.intoPot ? ' (into the pot)' : '') }))
   const incomes = flows.filter((f) => f.kind === 'Income')
   const outgoings = flows.filter((f) => f.kind === 'Expense')
   const oneOffs = input.oneOffs.filter((o) => o.age === age)
@@ -422,6 +416,9 @@ function YearSummary({ result, input, k, money, x, y, width }: {
         </div>
       )}
 
+      {result.survival && result.survival[k] != null && (
+        <div className="muted small">{fmt.pct(result.survival[k], 0)} chance of being alive at {age} (ONS life tables)</div>
+      )}
       <div className="ys-section">
         <div className="muted small">Typical (median) across {complete.length} start dates, with 10–90% range</div>
         <Stat label="Spending" cash={cash} s={spending} />

@@ -5,12 +5,13 @@ import { ComparePanel } from './components/ComparePanel'
 import { DataPanel } from './components/DataPanel'
 import { Explanation } from './components/Explanation'
 import { InputPanel } from './components/InputPanel'
+import { SpendingPlanner } from './components/SpendingPlanner'
 import { chartToPng, defaultLegend, PathChart, type LegendState, type Money, type Series } from './components/PathChart'
-import { AssumptionCards, Headline, KeyFigures, Legend, strategyTitle, Tables } from './components/ResultParts'
-import { defaultInput, fmt, mergeInput, startUnit, toNominal } from './defaults'
+import { AssumptionCards, Headline, KeyFigures, Legend, spendingHiddenLegend, strategyTitle, Tables } from './components/ResultParts'
+import { defaultInput, fmt, mergeInput, startUnit, toNominal, yearsFromToday } from './defaults'
 import type { MarketSummary, Scenario, SimulationInput, SimulationResult } from './types'
 
-type Tab = 'balance' | 'income' | 'tables' | 'compare' | 'data'
+type Tab = 'balance' | 'income' | 'plan' | 'tables' | 'compare' | 'data'
 
 const STORAGE_KEY = 'drawdown-sim-input'
 
@@ -34,6 +35,8 @@ export default function App() {
   const [spendingView, setSpendingView] = useState<Series>('income')
   const [zoom, setZoom] = useState(1)
   const [legend, setLegend] = useState<LegendState>(defaultLegend)
+  // The spending chart only lets you toggle one-offs; the rest is fixed (see spendingHiddenLegend)
+  const [spendingLegend, setSpendingLegend] = useState<LegendState>(defaultLegend)
   const [selected, setSelected] = useState<number | null>(null)
   const [summary, setSummary] = useState<MarketSummary | null>(null)
   const [scenarios, setScenarios] = useState<Scenario[]>([])
@@ -104,7 +107,7 @@ export default function App() {
     const header = ['start', 'status', 'fail_age', ...Array.from({ length: years + 1 }, (_, k) => `balance_age_${input.retirementAge + k}`)]
     const lines = result.paths.map((p) => {
       const status = p.failed ? 'ran_out' : p.partial ? 'partial' : p.succeeded ? 'lasted' : 'below_legacy'
-      const vals = p.balances.map((v, k) => Math.round(money === 'Nominal' ? toNominal(v, k, input.inflationRate) : v))
+      const vals = p.balances.map((v, k) => Math.round(money === 'Nominal' ? toNominal(v, yearsFromToday(input, k), input.inflationRate) : v))
       return [p.start, status, p.failAge ?? '', ...vals].join(',')
     })
     const summaryLines = [
@@ -204,6 +207,7 @@ export default function App() {
             {([
               ['balance', 'Balance'],
               ['income', 'Spending'],
+              ['plan', 'Spending plan'],
               ['tables', 'Tables'],
               ['compare', 'Compare'],
               ['data', 'Market data'],
@@ -235,8 +239,10 @@ export default function App() {
                 </div>
               )}
               <PathChart result={result} input={input} series={tab === 'balance' ? 'balance' : spendingView} money={money} zoom={zoom}
-                legend={legend} selected={selected} onSelect={setSelected} />
-              <Legend legend={legend} onChange={setLegend} />
+                legend={tab === 'balance' ? legend : { ...defaultLegend, oneOffs: spendingLegend.oneOffs }} selected={selected} onSelect={setSelected} />
+              {tab === 'balance'
+                ? <Legend legend={legend} onChange={setLegend} />
+                : <Legend legend={spendingLegend} onChange={setSpendingLegend} hide={spendingHiddenLegend} />}
               <p className="chart-note">
                 <span className="info-dot small">i</span>
                 {tab === 'balance'
@@ -254,6 +260,7 @@ export default function App() {
           {tab === 'tables' && result && (
             <Tables result={result} input={input} onSelect={(i) => { setSelected(i); setTab('balance') }} />
           )}
+          {tab === 'plan' && <SpendingPlanner input={input} onApply={(spending) => setInput({ ...input, spending })} />}
           {tab === 'compare' && <ComparePanel current={input} currentResult={result} scenarios={scenarios} />}
           {tab === 'data' && <DataPanel summary={summary} onRefreshed={() => { loadSummary(); setRunKey((k) => k + 1) }} />}
           {!result && !shownError && isChart && <div className="card placeholder">Running simulation…</div>}

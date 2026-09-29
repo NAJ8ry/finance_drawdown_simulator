@@ -14,6 +14,9 @@ export const defaultInput: SimulationInput = {
   retirementAge: 60,
   deathAge: 94,
   inflationRate: 0.025,
+  equityReturnAdjustment: 0,
+  currentAge: null,
+  lifeTable: 'None',
   feeRate: 0.005,
   allocation: { equity: 0.6, bond: 0.4, cash: 0 },
   oneOffs: [],
@@ -245,5 +248,28 @@ export const fmt = {
 /** "year" or "month": the unit of historical start dates in use. */
 export const startUnit = (input: SimulationInput) => (input.startFrequency === 'Monthly' ? 'month' : 'year')
 
-/** Converts a real (today's money) value at year k into nominal money using the planned inflation. */
+/** Converts a real (today's money) value into nominal money that many years from today, using the planned inflation. */
 export const toNominal = (value: number, years: number, inflation: number) => value * Math.pow(1 + inflation, years)
+
+/** Regular incomes and outgoings in force at an age, in today's money, as the simulator sees them. */
+export function flowsAt(input: SimulationInput, age: number) {
+  return input.flows
+    .filter((f) => age >= f.startAge && age < (f.endAge ?? input.deathAge))
+    .map((f) => ({
+      label: f.label || (f.kind === 'Income' ? 'Income' : 'Outgoing'),
+      kind: f.kind,
+      intoPot: f.kind === 'Income' && !!f.intoPot,
+      // Fixed amounts lose value at the planned inflation rate from their start, as in the simulator
+      amount: f.inflationLinked
+        ? f.annualAmount
+        : f.annualAmount / Math.pow(1 + input.inflationRate, age - Math.max(f.startAge, input.retirementAge)),
+    }))
+}
+
+/** Pensions and other income available to spend at an age (income paid into the pot is not spent). */
+export const otherIncomeAt = (input: SimulationInput, age: number) =>
+  flowsAt(input, age).filter((f) => f.kind === 'Income' && !f.intoPot).reduce((sum, f) => sum + f.amount, 0)
+
+/** Years from today to year k of retirement: inflation runs from the current age, or from retirement if it isn't set. */
+export const yearsFromToday = (input: SimulationInput, k: number) =>
+  k + Math.max(0, input.retirementAge - (input.currentAge ?? input.retirementAge))

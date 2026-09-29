@@ -23,11 +23,28 @@ export function Explanation({ summary, onClose }: { summary: MarketSummary | nul
             More recent start dates are still shown on the chart as dashed "partial" lines, but they are left out of the
             percentage because we don't know how they end yet.
           </p>
+          <h3>Beyond the success rate</h3>
+          <p>
+            Two plans with the same success rate can feel very different to live through, so the results also show how
+            often spending had to be cut by 10% or more from one year to the next (changes you planned, such as a new
+            amount from an age or a pension starting, are not counted), how long you would live on other income alone if
+            the money ran out, and how many years spending sat below your minimum.
+          </p>
+          <h3>Lifespan</h3>
+          <p>
+            Nobody knows their age of death, so a plan that lasts to 94 can still run out while you are alive, or you
+            may not live to see the shortfall. Choose UK life tables under "Your pot" to weigh each run-out by the chance
+            of still being alive at that age: the result is the chance of running out while alive (for a couple, while
+            either of you is). It uses the Office for National Statistics' 2024-based projections for people your age,
+            following your own generation through the tables. Source: Office for National Statistics licensed under the
+            Open Government Licence v.3.0.
+          </p>
           <h3>Real and nominal</h3>
           <p>
             <strong>Real</strong> shows everything in today's money. Each historical month's return is adjusted by that
             month's actual UK inflation, so the ups and downs of history are kept in the right order. <strong>Nominal</strong>{' '}
-            shows the same results in future pounds, grown by your planned constant inflation rate.
+            shows the same results in future pounds, grown by your planned constant inflation rate from today: your
+            current age if you have entered one, otherwise the day you retire.
           </p>
           <h3>What each month does</h3>
           <ol>
@@ -59,7 +76,10 @@ export function Explanation({ summary, onClose }: { summary: MarketSummary | nul
           </ul>
           <p>
             Before 2010, "global shares" are approximated by US shares converted to pounds, and bonds by UK government
-            bonds. Tax is not modelled. The server fetches new months automatically, so results can change a little as
+            bonds. The US was one of the best-performing share markets of the last 150 years; across other developed
+            markets returns were lower, and so were safe withdrawal rates (Pfau 2010; Anarkulova, Cederburg, O'Doherty
+            &amp; Sias 2025). "Share returns" under Assumptions lowers every year's share return to test how much your
+            plan relies on US-style history. Tax is not modelled. The server fetches new months automatically, so results can change a little as
             recent start dates become complete.
           </p>
           <p className="muted">

@@ -15,7 +15,8 @@ public class AskServiceTests
         var json = new JsonOptions();
         json.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         json.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
-        return new AskService(null!, Options.Create(new AskOptions()), Options.Create(json), NullLogger<AskService>.Instance);
+        var mortality = Mortality.Load(Path.Combine(AppContext.BaseDirectory, "SeedData", "mortality_uk.csv"));
+        return new AskService(null!, mortality, Options.Create(new AskOptions()), Options.Create(json), NullLogger<AskService>.Instance);
     }
 
     static IReadOnlyDictionary<string, JsonElement> ToolInput(string json) =>

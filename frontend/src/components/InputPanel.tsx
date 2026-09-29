@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import {
   adjustmentUsed,
+  fmt,
   investmentStrategies,
   ruleActions,
   ruleMetrics,
@@ -12,6 +13,7 @@ import {
 } from '../defaults'
 import type {
   InvestmentParameters,
+  LifeTable,
   RateChange,
   RecurringFlow,
   RuleAction,
@@ -35,18 +37,42 @@ export function InputPanel({ input, onChange }: Props) {
   const setInvestment = (patch: Partial<InvestmentParameters>) => set('investment', { ...input.investment, ...patch })
   const a = input.allocation
   const allocationTotal = a.equity + a.bond + a.cash
+  const retiringLater = input.currentAge != null && input.currentAge < input.retirementAge
 
   return (
     <div className="input-panel">
       <Section title="Your pot">
-        <NumberField label="Starting balance" prefix="£" value={input.startingBalance} min={1} step={1000}
-          onChange={(v) => set('startingBalance', v ?? 0)} />
-        <div className="row-2">
+        <NumberField label={retiringLater ? 'Pot at retirement' : 'Starting balance'} prefix="£" value={input.startingBalance} min={1} step={1000}
+          onChange={(v) => set('startingBalance', v ?? 0)} hint={retiringLater ? "In today's money" : undefined} />
+        <div className="row-3">
+          <NumberField label="Current age" value={input.currentAge} min={16} max={input.retirementAge} step={1} allowEmpty
+            onChange={(v) => set('currentAge', v == null ? null : Math.round(v))} hint={input.currentAge == null ? 'Retiring now' : undefined} />
           <NumberField label="Retirement age" value={input.retirementAge} min={30} max={100} step={1}
             onChange={(v) => set('retirementAge', Math.round(v ?? 60))} />
-          <NumberField label="Age of death" value={input.deathAge} min={input.retirementAge + 1} max={120} step={1}
+          <NumberField label={input.lifeTable === 'None' ? 'Age of death' : 'Plan to age'} value={input.deathAge} min={input.retirementAge + 1} max={120} step={1}
             onChange={(v) => set('deathAge', Math.round(v ?? 94))} />
         </div>
+        <SelectField<LifeTable> label="Lifespan" value={input.lifeTable}
+          options={[
+            { value: 'None', label: 'Use the age of death only' },
+            { value: 'Male', label: 'UK life tables: a man' },
+            { value: 'Female', label: 'UK life tables: a woman' },
+            { value: 'Couple', label: 'UK life tables: a couple (man and woman, same age)' },
+          ]}
+          onChange={(v) => set('lifeTable', v)} />
+        {input.lifeTable !== 'None' && (
+          <p className="note">
+            Adds the chance of running out while still alive{input.lifeTable === 'Couple' ? ' (while either of you is)' : ''},
+            using ONS projections of how long people your age live. "Plan to age" is how far the simulation runs; 95–100
+            covers most lifespans.
+          </p>
+        )}
+        {retiringLater && (
+          <p className="note">
+            All amounts are in today's money. Future pounds (the "Nominal" view) grow with planned inflation from today,
+            {' '}{input.retirementAge - (input.currentAge ?? 0)} years before you retire.
+          </p>
+        )}
       </Section>
 
       <Section title="Assumptions">
@@ -56,6 +82,17 @@ export function InputPanel({ input, onChange }: Props) {
           <NumberField label="Fees" percent value={input.feeRate} step={0.05} min={0} max={5}
             onChange={(v) => set('feeRate', v ?? 0)} hint="Per year" />
         </div>
+        <SelectField label="Share returns" value={String(input.equityReturnAdjustment ?? 0)}
+          options={[0, -0.005, -0.01, -0.015, -0.02].map((v) => ({
+            value: String(v),
+            label: v === 0 ? 'As history' : `${fmt.pctTrim(-v)} a year lower than history`,
+          }))}
+          onChange={(v) => set('equityReturnAdjustment', Number(v))} />
+        <p className="note">
+          Before 2010 the share history is US shares, among the best performers of any country. Studies of other
+          developed markets find lower returns and lower safe withdrawal rates (Pfau 2010; Anarkulova, Cederburg,
+          O'Doherty &amp; Sias 2025), so check your plan still works with shares doing a little worse.
+        </p>
         <div className="row-2">
           <SelectField label="Withdrawals taken" value={input.withdrawalTiming}
             options={[{ value: 'Monthly', label: 'Monthly' }, { value: 'AnnualInAdvance', label: 'Yearly in advance' }]}
@@ -157,6 +194,7 @@ function SpendingBaseFields({ p, set, balance, hasIncome }: SpendingFieldsProps 
         <NumberField label="Take from the pot each year" prefix="£" value={p.fixedAmount} min={0} step={500}
           onChange={(v) => set({ fixedAmount: v ?? 0 })} hint="From retirement, today's money" />
         {hasIncome && <p className="note">Your other income is added on top of what the pot pays.</p>}
+        <p className="note">Tip: the <strong>Spending plan</strong> tab can draft these amounts for you from research on how spending changes with age.</p>
       </>
     )
   if (p.type === 'ConstantPercentage')

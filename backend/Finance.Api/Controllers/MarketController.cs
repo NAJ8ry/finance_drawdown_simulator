@@ -37,7 +37,8 @@ public class MarketController(FinanceDbContext db, MarketDataStore store, Market
         new("Cash", "2010 – now", "Bank of England Bank Rate, monthly average (IUMABEDR)."),
         new("Inflation", "1871 – 1914", "UK CPI, annual (Bank of England millennium dataset), interpolated monthly."),
         new("Inflation", "1914 – 2009", "UK CPI, monthly spliced series (Bank of England millennium dataset)."),
-        new("Inflation", "2010 – now", "ONS CPI index (D7BT)."),
+        new("Inflation", "2010 – now", "ONS CPI index (D7BT). Source: Office for National Statistics licensed under the Open Government Licence v.3.0."),
+        new("Lifespan", "2024-based projection", "ONS mortality rates (qx), principal projection, United Kingdom. Source: Office for National Statistics licensed under the Open Government Licence v.3.0."),
     ];
 
     [HttpGet("summary")]
