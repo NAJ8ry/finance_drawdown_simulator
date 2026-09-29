@@ -207,7 +207,7 @@ public class SimulatorTests
     }
 
     [Fact]
-    public void Income_above_spending_is_paid_into_the_pot()
+    public void Income_above_spending_is_paid_into_the_pot_and_spent_at_the_initial_rate()
     {
         var input = Input(i =>
         {
@@ -215,15 +215,147 @@ public class SimulatorTests
             i.Flows = [new RecurringFlow("Pension", FlowKind.Income, 60, null, 10_000)];
         });
         var path = Simulator.RunPath(input, RealReturns.From(Flat(120)), 0, "x");
-        Assert.Equal(160_000, path.EndBalance, 6);
-        Assert.Equal(-6_000, path.Withdrawals[0], 6);
+        // Each year's surplus is new capital, so spending rises by 4% of it: 4,000 + 4% of 6,000, and so on
+        Assert.Equal(4_240, path.Spending[0], 6);
+        Assert.Equal(4_240 + 0.04 * 5_760, path.Spending[1], 6);
+        Assert.Equal(-5_760, path.Withdrawals[0], 6);
+        Assert.Equal(100_000 + path.Spending.Sum(sp => 10_000 - sp), path.EndBalance, 6);
+    }
+
+    [Fact]
+    public void Deposit_raises_constant_spending_as_if_it_had_been_in_the_pot()
+    {
+        var input = Input(i =>
+        {
+            i.Spending.InitialRate = 0.04;
+            i.OneOffs = [new OneOff(61, -500_000, "Inheritance")];
+        });
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(120)), 0, "x");
+        Assert.Equal(4_000, path.Spending[0], 6);
+        Assert.Equal(24_000, path.Spending[1], 6);
+        Assert.Equal(24_000, path.Spending[9], 6);
+    }
+
+    [Fact]
+    public void Rate_change_restarts_spending_on_the_pot_including_new_money()
+    {
+        var input = Input(i =>
+        {
+            i.Spending.InitialRate = 0.07;
+            i.Spending.RateChanges = [new RateChange(62, 0.03)];
+            i.OneOffs = [new OneOff(62, -500_000, "Inheritance")];
+        });
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(120)), 0, "x");
+        Assert.Equal(7_000, path.Spending[1], 6);
+        // 100,000 - 2 x 7,000 left, plus the inheritance, at 3%
+        Assert.Equal(0.03 * 586_000, path.Spending[2], 6);
+        Assert.Equal(0.03 * 586_000, path.Spending[9], 6);
+    }
+
+    [Fact]
+    public void Rate_change_counts_income_arriving_that_year()
+    {
+        var input = Input(i =>
+        {
+            i.Spending.InitialRate = 0.07;
+            i.Spending.UseGuytonKlinger = true;
+            i.Spending.RateChanges = [new RateChange(62, 0.03)];
+            i.Flows = [new RecurringFlow("Inheritance", FlowKind.Income, 62, 63, 500_000)];
+        });
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(120)), 0, "x");
+        Assert.Equal(0.03 * 586_000, path.Spending[2], 6);
+        // Flat markets: the guardrails leave the new level alone
+        Assert.Equal(0.03 * 586_000, path.Spending[5], 6);
+    }
+
+    [Fact]
+    public void Cash_buffer_stays_a_sum_of_money_when_a_deposit_arrives()
+    {
+        var input = Input(i =>
+        {
+            i.Spending.InitialRate = 0.04;
+            i.Investment.UseCashBuffer = true;
+            i.OneOffs = [new OneOff(61, -900_000, "Inheritance")];
+        });
+        // Shares grow 1% a month, cash earns nothing
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(120, equity: 0.01)), 0, "x");
+        // Two years of the new £40k withdrawal is £80k of cash; the other ~£900k is in shares and grows ~12.7%.
+        // Sizing the buffer from the pre-deposit pot would have held over 80% of the pot in cash.
+        var growth = path.Balances[2] - path.Balances[1] - 900_000 + 40_000;
+        Assert.InRange(growth, 100_000, 125_000);
+    }
+
+    [Theory]
+    [InlineData(SpendingStrategyType.ConstantPercentage)]
+    [InlineData(SpendingStrategyType.ConstantInflationAdjusted)]
+    [InlineData(SpendingStrategyType.RemainingLife)]
+    public void Income_paid_into_the_pot_is_invested_not_spent(SpendingStrategyType type)
+    {
+        var input = Input(i =>
+        {
+            i.Spending.Type = type;
+            i.Spending.InitialRate = 0.04;
+            i.Flows = [new RecurringFlow("Inheritance", FlowKind.Income, 62, 63, 500_000, IntoPot: true)];
+        });
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(120)), 0, "x");
+        Assert.True(path.Spending[2] < 50_000, $"spent {path.Spending[2]:N0} in the year it arrived");
+        Assert.True(path.Balances[3] > 500_000);
+    }
+
+    [Fact]
+    public void Fixed_amounts_take_each_amount_until_the_next_with_income_on_top()
+    {
+        var input = Input(i =>
+        {
+            i.Spending.Type = SpendingStrategyType.FixedAmounts;
+            i.Spending.FixedAmount = 10_000;
+            i.Spending.AmountSteps = [new SpendingStep(63, 6_000), new SpendingStep(66, 4_000)];
+            i.Flows = [new RecurringFlow("Pension", FlowKind.Income, 65, null, 3_000)];
+        });
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(120)), 0, "x");
+        // Ages 60-62, 63-65, 66-69; the pension from 65 doesn't reduce what the pot pays
+        double[] expected = [10_000, 10_000, 10_000, 6_000, 6_000, 6_000, 4_000, 4_000, 4_000, 4_000];
+        Assert.Equal(expected, path.Withdrawals.Select(w => Math.Round(w, 6)));
+        Assert.Equal(9_000, path.Spending[5], 6); // ...it is spent on top
+        Assert.Equal(100_000 - expected.Sum(), path.EndBalance, 6);
+    }
+
+    [Fact]
+    public void Fixed_amounts_ignore_adjustments_that_have_nothing_to_act_on()
+    {
+        var input = Input(i =>
+        {
+            i.Spending.Type = SpendingStrategyType.FixedAmounts;
+            i.Spending.FixedAmount = 5_000;
+            i.Spending.UseInflationSkip = true;
+            i.Spending.UseRatchet = true;
+            i.Spending.RatchetTrigger = 0;
+            i.Spending.UseFloorCeiling = true;
+            i.Spending.Floor = 0.5;
+        });
+        // Falling market: inflation skip would cut, the zero-trigger ratchet would raise, the floor would lift to 7,500
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(120, equity: -0.01)), 0, "x");
+        Assert.All(path.Spending, sp => Assert.Equal(5_000, sp, 6));
+    }
+
+    [Fact]
+    public void Deposit_does_not_trigger_the_ratchet()
+    {
+        var input = Input(i =>
+        {
+            i.Spending.InitialRate = 0.04;
+            i.Spending.UseRatchet = true;
+            i.OneOffs = [new OneOff(61, -500_000, "Inheritance")];
+        });
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(120)), 0, "x");
+        Assert.All(path.Spending.Skip(1), sp => Assert.Equal(24_000, sp, 6));
     }
 
     [Fact]
     public void Fixed_income_loses_value_with_planned_inflation_from_its_start()
     {
         var input = Input(i => i.Flows = [new RecurringFlow("Annuity", FlowKind.Income, 62, null, 1_000, InflationLinked: false)]);
-        var (income, _) = Simulator.FlowsByYear(input);
+        var (income, _, _) = Simulator.FlowsByYear(input);
         Assert.Equal(0, income[1]);
         Assert.Equal(1_000, income[2], 6);
         Assert.Equal(1_000 / 1.02, income[3], 6);

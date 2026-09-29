@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import {
+  adjustmentUsed,
   investmentStrategies,
   ruleActions,
   ruleMetrics,
@@ -11,12 +12,14 @@ import {
 } from '../defaults'
 import type {
   InvestmentParameters,
+  RateChange,
   RecurringFlow,
   RuleAction,
   RuleComparison,
   RuleMetric,
   SimulationInput,
   SpendingParameters,
+  SpendingStep,
   SpendingRule,
 } from '../types'
 import { CheckField, NumberField, Section, SelectField } from './Fields'
@@ -89,6 +92,8 @@ export function InputPanel({ input, onChange }: Props) {
           onChange={(type) => setSpending({ type })} />
         <p className="note">{spendingBases[input.spending.type as SpendingBase]?.description}</p>
         <SpendingBaseFields p={input.spending} set={setSpending} balance={input.startingBalance} hasIncome={input.flows.length > 0} />
+        {input.spending.type === 'FixedAmounts' && <AmountSteps input={input} set={setSpending} />}
+        {input.spending.type !== 'RemainingLife' && input.spending.type !== 'FixedAmounts' && <RateChanges input={input} set={setSpending} />}
         <div className="adjustments-title">Adjustments <span className="muted small">(tick any combination)</span></div>
         <SpendingAdjustments p={input.spending} set={setSpending} />
       </Section>
@@ -146,6 +151,14 @@ function SpendingBaseFields({ p, set, balance, hasIncome }: SpendingFieldsProps 
       <NumberField label="Assumed real return" percent value={p.assumedRealReturn} min={-5} max={10} step={0.5}
         onChange={(v) => set({ assumedRealReturn: v ?? 0 })} />
     )
+  if (p.type === 'FixedAmounts')
+    return (
+      <>
+        <NumberField label="Take from the pot each year" prefix="£" value={p.fixedAmount} min={0} step={500}
+          onChange={(v) => set({ fixedAmount: v ?? 0 })} hint="From retirement, today's money" />
+        {hasIncome && <p className="note">Your other income is added on top of what the pot pays.</p>}
+      </>
+    )
   if (p.type === 'ConstantPercentage')
     return (
       <>
@@ -167,21 +180,84 @@ function SpendingBaseFields({ p, set, balance, hasIncome }: SpendingFieldsProps 
   )
 }
 
-function Adjustment({ title, description, on, onToggle, children }: {
+function AmountSteps({ input, set }: { input: SimulationInput; set: SpendingFieldsProps['set'] }) {
+  const steps = input.spending.amountSteps ?? []
+  const update = (i: number, patch: Partial<SpendingStep>) => set({ amountSteps: steps.map((c, j) => (j === i ? { ...c, ...patch } : c)) })
+  return (
+    <div className="rate-changes">
+      {steps.map((c, i) => (
+        <div className="rate-change" key={i}>
+          <NumberField label="From age" value={c.age} min={input.retirementAge + 1} max={input.deathAge - 1} step={1}
+            onChange={(v) => update(i, { age: Math.round(v ?? c.age) })} />
+          <NumberField label="Take from the pot" prefix="£" value={c.amount} min={0} step={500}
+            onChange={(v) => update(i, { amount: v ?? 0 })} />
+          <button className="icon-btn" title="Remove" onClick={() => set({ amountSteps: steps.filter((_, j) => j !== i) })}>
+            ×
+          </button>
+        </div>
+      ))}
+      {steps.length > 0 && <p className="note">Each amount is taken every year until the next one starts.</p>}
+      <button className="btn small"
+        onClick={() => {
+          const last = steps.length ? steps[steps.length - 1] : { age: input.retirementAge, amount: input.spending.fixedAmount }
+          set({ amountSteps: [...steps, { age: Math.min(last.age + 5, input.deathAge - 1), amount: last.amount }] })
+        }}>
+        + Change the amount from an age
+      </button>
+    </div>
+  )
+}
+
+function RateChanges({ input, set }: { input: SimulationInput; set: SpendingFieldsProps['set'] }) {
+  const changes = input.spending.rateChanges ?? []
+  const update = (i: number, patch: Partial<RateChange>) => set({ rateChanges: changes.map((c, j) => (j === i ? { ...c, ...patch } : c)) })
+  return (
+    <div className="rate-changes">
+      {changes.map((c, i) => (
+        <div className="rate-change" key={i}>
+          <NumberField label="From age" value={c.age} min={input.retirementAge + 1} max={input.deathAge - 1} step={1}
+            onChange={(v) => update(i, { age: Math.round(v ?? c.age) })} />
+          <NumberField label="Take from the pot" percent value={c.rate} min={0} max={50} step={0.1}
+            onChange={(v) => update(i, { rate: v ?? 0 })} />
+          <button className="icon-btn" title="Remove" onClick={() => set({ rateChanges: changes.filter((_, j) => j !== i) })}>
+            ×
+          </button>
+        </div>
+      ))}
+      {changes.length > 0 && input.spending.type === 'ConstantInflationAdjusted' && (
+        <p className="note">
+          At each age, spending restarts at the new rate on the pot, including money added that year (an inheritance, say).
+          Guardrails and the ratchet are then measured from there.
+        </p>
+      )}
+      <button className="btn small"
+        onClick={() => set({
+          rateChanges: [...changes, { age: Math.min(input.retirementAge + 5, input.deathAge - 1), rate: input.spending.initialRate }],
+        })}>
+        + Change the rate from an age
+      </button>
+    </div>
+  )
+}
+
+function Adjustment({ title, description, on, onToggle, disabledReason, children }: {
   title: string
   description: string
   on: boolean
   onToggle: (on: boolean) => void
+  /** Set when the chosen base has no use for this adjustment; it is shown off and can't be ticked. */
+  disabledReason?: string
   children?: ReactNode
 }) {
+  const active = on && !disabledReason
   return (
-    <div className={`adjustment${on ? ' on' : ''}`}>
+    <div className={`adjustment${active ? ' on' : ''}${disabledReason ? ' disabled' : ''}`}>
       <label className="adjustment-head">
-        <input type="checkbox" checked={on} onChange={(e) => onToggle(e.target.checked)} />
+        <input type="checkbox" checked={active} disabled={!!disabledReason} onChange={(e) => onToggle(e.target.checked)} />
         <span className="adjustment-title">{title}</span>
       </label>
-      <p className="adjustment-desc">{description}</p>
-      {on && children && <div className="adjustment-body">{children}</div>}
+      <p className="adjustment-desc">{disabledReason ?? description}</p>
+      {active && children && <div className="adjustment-body">{children}</div>}
     </div>
   )
 }
@@ -189,24 +265,6 @@ function Adjustment({ title, description, on, onToggle, children }: {
 function SpendingAdjustments({ p, set }: SpendingFieldsProps) {
   const fields: Record<SpendingAdjustment, ReactNode> = {
     useInflationSkip: null,
-    useGoodBadYear: (
-      <>
-        <div className="row-2">
-          <NumberField label="Good year if return ≥" percent value={p.goodThreshold} step={1} onChange={(v) => set({ goodThreshold: v ?? 0 })} />
-          <NumberField label="Bad year if return ≤" percent value={p.badThreshold} step={1} onChange={(v) => set({ badThreshold: v ?? 0 })} />
-        </div>
-        <div className="row-2">
-          <NumberField label="Good year: raise by" percent value={p.raiseStep} min={0} max={100} step={1}
-            onChange={(v) => set({ raiseStep: v ?? 0 })} hint="0% = never raise" />
-          <NumberField label="Bad year: cut by" percent value={p.cutStep} min={0} max={100} step={1}
-            onChange={(v) => set({ cutStep: v ?? 0 })} hint="0% = never cut" />
-        </div>
-        <div className="row-2">
-          <NumberField label="Max total rise" percent value={p.maxRaise} min={0} step={5} onChange={(v) => set({ maxRaise: v ?? 0 })} />
-          <NumberField label="Max total cut" percent value={p.maxCut} min={0} max={100} step={5} onChange={(v) => set({ maxCut: v ?? 0 })} />
-        </div>
-      </>
-    ),
     useGuytonKlinger: (
       <>
         <div className="row-2">
@@ -247,7 +305,8 @@ function SpendingAdjustments({ p, set }: SpendingFieldsProps) {
     <div className="adjustments">
       {(Object.keys(spendingAdjustments) as SpendingAdjustment[]).map((key) => (
         <Adjustment key={key} title={spendingAdjustments[key].label} description={spendingAdjustments[key].description}
-          on={p[key]} onToggle={(v) => set({ [key]: v } as Partial<SpendingParameters>)}>
+          on={p[key]} onToggle={(v) => set({ [key]: v } as Partial<SpendingParameters>)}
+          disabledReason={adjustmentUsed(p, key) ? undefined : 'Not used with fixed amounts: your schedule sets every year, so there is nothing for this to adjust.'}>
           {fields[key]}
         </Adjustment>
       ))}
@@ -329,6 +388,12 @@ function InvestmentFields({ p, set }: { p: InvestmentParameters; set: (patch: Pa
   }
 }
 
+/** A short, large income that is being treated as spending money, e.g. an inheritance entered as one year of income. */
+function looksLikeLumpSum(f: RecurringFlow, startingBalance: number) {
+  const years = f.endAge == null ? Infinity : f.endAge - f.startAge
+  return f.kind === 'Income' && !f.intoPot && years <= 2 && f.annualAmount >= Math.max(50_000, 0.25 * startingBalance)
+}
+
 function FlowList({ input, onChange }: { input: SimulationInput; onChange: (flows: RecurringFlow[]) => void }) {
   const flows = input.flows
   const update = (i: number, patch: Partial<RecurringFlow>) => onChange(flows.map((f, j) => (j === i ? { ...f, ...patch } : f)))
@@ -355,6 +420,14 @@ function FlowList({ input, onChange }: { input: SimulationInput; onChange: (flow
               onChange={(v) => update(i, { endAge: v == null ? null : Math.round(v) })} hint={f.endAge == null ? 'For life' : undefined} />
           </div>
           <CheckField label="Rises with inflation" checked={f.inflationLinked} onChange={(v) => update(i, { inflationLinked: v })} />
+          {f.kind === 'Income' && (
+            <CheckField label="Pay into the pot (don't spend it)" checked={!!f.intoPot} onChange={(v) => update(i, { intoPot: v })} />
+          )}
+          {looksLikeLumpSum(f, input.startingBalance) && (
+            <p className="note warn">
+              This looks like a lump sum. As plain income it is spent in the years it arrives; tick "Pay into the pot" to invest it.
+            </p>
+          )}
         </div>
       ))}
       <div className="flow-add">

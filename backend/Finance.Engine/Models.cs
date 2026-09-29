@@ -17,6 +17,7 @@ public enum SpendingStrategyType
     Ratchet,
     RemainingLife,
     CustomRules,
+    FixedAmounts,
 }
 
 public enum InvestmentStrategyType
@@ -58,6 +59,8 @@ public enum FlowKind { Income, Expense }
 /// A regular yearly income (e.g. State Pension, workplace pension, rent) or outgoing (e.g. mortgage, care costs).
 /// Amounts are per year in today's money. Inflation-linked flows keep their value; fixed ones stay the same in
 /// pounds from their start age, so they lose value at the planned inflation rate.
+/// Income with <see cref="IntoPot"/> (an inheritance, a house sale) is invested rather than spent: it never counts
+/// as income on top of spending, whatever the spending strategy.
 /// </summary>
 public sealed record RecurringFlow(
     string? Label,
@@ -65,7 +68,14 @@ public sealed record RecurringFlow(
     int StartAge,
     int? EndAge,
     double AnnualAmount,
-    bool InflationLinked = true);
+    bool InflationLinked = true,
+    bool IntoPot = false);
+
+/// <summary>From <see cref="Age"/> on, take <see cref="Amount"/> a year from the pot (today's money).</summary>
+public sealed record SpendingStep(int Age, double Amount);
+
+/// <summary>From <see cref="Age"/> on, the pot is drawn at <see cref="Rate"/> instead of the initial rate (0.03 = 3%).</summary>
+public sealed record RateChange(int Age, double Rate);
 
 /// <summary>"IF metric comparison threshold THEN action value" — used by the custom rule strategy.</summary>
 public sealed record SpendingRule(
@@ -78,30 +88,51 @@ public sealed record SpendingRule(
 /// <summary>
 /// Spending = a base strategy (<see cref="Type"/>: constant inflation-adjusted, constant percentage or remaining life)
 /// plus any number of adjustments switched on with the Use… flags, applied each year in this order:
-/// skip inflation after a loss → good/bad year → Guyton-Klinger → ratchet → custom rules → floor and ceiling.
+/// skip inflation after a loss → Guyton-Klinger → ratchet → custom rules → floor and ceiling.
 /// Rates are fractions (0.04 = 4%). Spending amounts are annual and in today's money.
 /// Older single-strategy inputs (e.g. Type = GuytonKlinger) are converted by <see cref="Normalise"/>.
 /// </summary>
 public sealed class SpendingParameters
 {
-    /// <summary>Base strategy. Only ConstantInflationAdjusted, ConstantPercentage and RemainingLife are bases.</summary>
+    /// <summary>Base strategy. Only ConstantInflationAdjusted, ConstantPercentage, RemainingLife and FixedAmounts are bases.</summary>
     public SpendingStrategyType Type { get; set; } = SpendingStrategyType.ConstantInflationAdjusted;
 
     /// <summary>Year-one spending (or pot share, for the percentage base) as a fraction of the starting balance.</summary>
     public double InitialRate { get; set; } = 0.04;
 
+    /// <summary>
+    /// Later changes to the withdrawal rate, e.g. dropping to 3% once an inheritance arrives. At each change age a
+    /// constant base restarts at the new rate on the pot (including that year's deposits and surplus income), and the
+    /// guardrails, ratchet and year-one limits are measured from there. The percentage base simply uses the new rate.
+    /// </summary>
+    public List<RateChange> RateChanges { get; set; } = [];
+
+    /// <summary>The withdrawal rate in force at an age.</summary>
+    public double RateAt(double age) =>
+        RateChanges.Where(c => c.Age <= age).OrderBy(c => c.Age).Select(c => c.Rate).LastOrDefault(InitialRate);
+
+    // Fixed amounts base: take FixedAmount a year from the pot from retirement, then each step's amount from its age
+    public double FixedAmount { get; set; } = 20_000;
+    public List<SpendingStep> AmountSteps { get; set; } = [];
+
+    /// <summary>
+    /// With fixed amounts your schedule sets every year, so adjustments that build on last year's spending or year one
+    /// (skip inflation, ratchet, floor and ceiling) have nothing to act on and are ignored.
+    /// </summary>
+    public bool Fixed => Type == SpendingStrategyType.FixedAmounts;
+
+    /// <summary>What the fixed amounts base takes from the pot at an age.</summary>
+    public double AmountAt(double age) =>
+        AmountSteps.Where(c => c.Age <= age).OrderBy(c => c.Age).Select(c => c.Amount).LastOrDefault(FixedAmount);
+
     // Remaining life base
     public double AssumedRealReturn { get; set; } = 0.02;
 
-    // Good year / bad year
+    // Legacy "good year / bad year" adjustment, removed: Normalise turns it into custom rules plus floor and ceiling
     public bool UseGoodBadYear { get; set; }
     public double GoodThreshold { get; set; } = 0.10;
     public double BadThreshold { get; set; } = -0.10;
-
-    /// <summary>Raise spending by this after a good year (0 = never raise).</summary>
     public double RaiseStep { get; set; } = 0.10;
-
-    /// <summary>Cut spending by this after a bad year (0 = never cut).</summary>
     public double CutStep { get; set; } = 0.10;
     public double MaxRaise { get; set; } = 0.50;
     public double MaxCut { get; set; } = 0.30;
@@ -139,7 +170,10 @@ public sealed class SpendingParameters
     /// <summary>Legacy: base for the old CustomRules strategy.</summary>
     public SpendingStrategyType? BaseType { get; set; }
 
-    /// <summary>Converts an old single-strategy selection into base + adjustment flags. Safe to call repeatedly.</summary>
+    /// <summary>
+    /// Converts old inputs: a single-strategy selection into base + adjustment flags, and the removed good year /
+    /// bad year adjustment into custom rules plus floor and ceiling. Safe to call repeatedly.
+    /// </summary>
     public SpendingParameters Normalise()
     {
         switch (Type)
@@ -161,7 +195,36 @@ public sealed class SpendingParameters
                     : SpendingStrategyType.ConstantInflationAdjusted;
                 break;
         }
+        if (UseGoodBadYear) ConvertGoodBadYear();
         return this;
+    }
+
+    /// <summary>
+    /// Good year / bad year raised or cut spending on last year's return, within limits against year one. The same
+    /// behaviour is a pair of trailing-return rules, with its limits as the floor and ceiling.
+    /// </summary>
+    void ConvertGoodBadYear()
+    {
+        List<SpendingRule> rules = [];
+        if (RaiseStep > 0)
+            rules.Add(new(RuleMetric.TrailingReturn, RuleComparison.GreaterThan, GoodThreshold, RuleAction.AdjustPercent, RaiseStep));
+        if (CutStep > 0)
+            rules.Add(new(RuleMetric.TrailingReturn, RuleComparison.LessThan, BadThreshold, RuleAction.AdjustPercent, -CutStep));
+        if (UseCustomRules)
+        {
+            // Keep the user's own rules; the converted pair must apply alongside them, not instead of them
+            Rules = [.. rules, .. Rules];
+            ApplyAllMatches = true;
+        }
+        else
+        {
+            Rules = rules;
+            UseCustomRules = true;
+        }
+        Floor = UseFloorCeiling ? Math.Max(Floor, -MaxCut) : -MaxCut;
+        Ceiling = UseFloorCeiling ? Math.Min(Ceiling, MaxRaise) : MaxRaise;
+        UseFloorCeiling = true;
+        UseGoodBadYear = false;
     }
 }
 

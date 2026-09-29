@@ -45,7 +45,12 @@ public static class Simulator
         var invest = new InvestmentStrategy(input.Investment, input.Allocation);
         var monthlyFee = 1 - Math.Pow(1 - input.FeeRate, 1.0 / 12);
         var oneOffs = OneOffsByMonth(input);
-        var (income, expenses) = FlowsByYear(input);
+        var (income, expenses, intoPot) = FlowsByYear(input);
+        // New capital each year: one-off deposits plus income paid into the pot
+        var deposits = new double[Math.Max(1, years)];
+        foreach (var (month, amount) in oneOffs)
+            if (amount < 0) deposits[month / 12] -= amount;
+        for (var y = 0; y < deposits.Length && y < intoPot.Length; y++) deposits[y] += intoPot[y];
 
         var path = new PathResult
         {
@@ -67,12 +72,16 @@ public static class Simulator
             InflationRate = input.InflationRate,
         };
 
-        var holdings = invest.TargetWeights(0, input.StartingBalance, input.Spending.InitialRate * input.StartingBalance)
+        var firstDraw = input.Spending.Type == SpendingStrategyType.FixedAmounts
+            ? input.Spending.AmountAt(input.RetirementAge)
+            : input.Spending.InitialRate * input.StartingBalance;
+        var holdings = invest.TargetWeights(0, input.StartingBalance, firstDraw)
             .Select(w => w * input.StartingBalance).ToArray();
         var targets = holdings.Select(h => h / input.StartingBalance).ToArray();
         var portfolioTrail = new Trailing12();
         var equityTrail = new Trailing12();
         var spend = 0.0;
+        var draw = 0.0; // this year's net withdrawal from the pot, which sizes the cash buffer
         var peak = input.StartingBalance;
         var inflationFactor = 1 + input.InflationRate;
 
@@ -88,21 +97,41 @@ public static class Simulator
                 state.TrailingReturn = year == 0 ? 0 : portfolioTrail.Product * inflationFactor - 1;
                 state.Income = income[year];
                 state.Expenses = expenses[year];
-                if (year == 0)
+                state.Rate = input.Spending.RateAt(state.Age);
+                var restart = year > 0 && input.Spending.Type != SpendingStrategyType.FixedAmounts
+                    && input.Spending.RateChanges.Any(c => c.Age == state.Age);
+                if (year == 0 || restart)
                 {
-                    spend = SpendingStrategy.Initial(input.Spending, state);
+                    // A rate change restarts the plan on everything available this year, new money included
+                    var capital = restart ? total + deposits[year] + Math.Max(0, state.Income - state.Expenses) : total;
+                    spend = SpendingStrategy.Initial(input.Spending, state, capital);
                     state.InitialSpending = spend;
-                    state.InitialWithdrawalRate = total > 0 ? state.NetWithdrawal(spend) / total : 0;
+                    state.InitialWithdrawalRate = capital > 0 ? Math.Max(0, state.NetWithdrawal(spend)) / capital : 0;
+                    if (restart)
+                    {
+                        state.InitialBalance = capital;
+                        state.RatchetBase = capital;
+                    }
                 }
                 else
                 {
                     state.PreviousSpending = spend;
+                    // If other income covered everything so far, the guardrails' reference is the first year the pot is drawn on
+                    if (state.InitialWithdrawalRate <= 0 && total > 0 && state.NetWithdrawal(spend) > 0)
+                        state.InitialWithdrawalRate = state.NetWithdrawal(spend) / total;
                     spend = SpendingStrategy.Next(input.Spending, state);
+                }
+                if (!restart)
+                {
+                    // Deposits and surplus income this year are new capital, not growth
+                    var added = deposits[year] + Math.Max(0, -state.NetWithdrawal(spend));
+                    spend = SpendingStrategy.AddCapital(input.Spending, state, spend, added);
                 }
                 state.PreviousSpending = spend;
                 path.Spending[year] = spend;
                 if (input.SpendingFloor is { } floor && spend < floor - Epsilon) path.BelowFloor = true;
-                targets = invest.TargetWeights(m, total, Math.Max(0, state.NetWithdrawal(spend)));
+                draw = Math.Max(0, state.NetWithdrawal(spend));
+                targets = invest.TargetWeights(m, total, draw);
             }
 
             var downMarket = m >= 12 && equityTrail.Product * inflationFactor < 1;
@@ -110,7 +139,7 @@ public static class Simulator
                 ? spend / 12
                 : m % 12 == 0 ? spend : 0;
             // Other income and regular outgoings arrive monthly
-            withdrawal += (expenses[m / 12] - income[m / 12]) / 12;
+            withdrawal += (expenses[m / 12] - income[m / 12] - intoPot[m / 12]) / 12;
             if (oneOffs.TryGetValue(m, out var extra)) withdrawal += extra;
 
             if (withdrawal > 0)
@@ -125,7 +154,12 @@ public static class Simulator
             }
             else if (withdrawal < 0)
             {
+                // The cash buffer is a sum of money, not a share, so re-size the weights for the bigger pot
+                targets = invest.TargetWeights(m, total - withdrawal, draw);
                 InvestmentStrategy.Deposit(holdings, -withdrawal, targets);
+                // Paid-in money isn't a market gain, so it moves the peak and ratchet base too
+                SpendingStrategy.Deposited(state, -withdrawal);
+                peak += -withdrawal;
             }
             path.Withdrawals[m / 12] += withdrawal;
 
@@ -144,6 +178,7 @@ public static class Simulator
             path.MaxDrawdown = Math.Max(path.MaxDrawdown, peak > 0 ? 1 - after / peak : 0);
             path.MinBalance = Math.Min(path.MinBalance, after);
 
+            targets = invest.TargetWeights(m, after, draw);
             if (invest.ShouldRebalance(m, holdings, targets, downMarket))
                 InvestmentStrategy.Rebalance(holdings, targets);
             invest.RefillCash(m, holdings, targets, downMarket);
@@ -172,12 +207,15 @@ public static class Simulator
             path.Spending[y] = Math.Max(0, income[y] - expenses[y]);
     }
 
-    /// <summary>Annual other income and regular outgoings (today's money) for each year of retirement.</summary>
-    public static (double[] Income, double[] Expenses) FlowsByYear(SimulationInput input)
+    /// <summary>
+    /// Annual other income, regular outgoings and money paid into the pot (today's money) for each year of retirement.
+    /// </summary>
+    public static (double[] Income, double[] Expenses, double[] IntoPot) FlowsByYear(SimulationInput input)
     {
         var years = Math.Max(1, input.HorizonMonths / 12);
         var income = new double[years];
         var expenses = new double[years];
+        var intoPot = new double[years];
         foreach (var f in input.Flows)
         {
             var end = f.EndAge ?? input.DeathAge;
@@ -188,11 +226,12 @@ public static class Simulator
                 if (age < f.StartAge || age >= end) continue;
                 // Fixed amounts stay the same in pounds, so lose value at the planned inflation rate
                 var amount = f.InflationLinked ? f.AnnualAmount : f.AnnualAmount / Math.Pow(1 + input.InflationRate, age - from);
-                if (f.Kind == FlowKind.Income) income[y] += amount;
-                else expenses[y] += amount;
+                if (f.Kind == FlowKind.Expense) expenses[y] += amount;
+                else if (f.IntoPot) intoPot[y] += amount;
+                else income[y] += amount;
             }
         }
-        return (income, expenses);
+        return (income, expenses, intoPot);
     }
 
     static Dictionary<int, double> OneOffsByMonth(SimulationInput input)
@@ -285,6 +324,20 @@ public static class Simulator
         if (a.Equity < 0 || a.Bond < 0 || a.Cash < 0) e.Add("Allocation percentages cannot be negative.");
         if (Math.Abs(a.Equity + a.Bond + a.Cash - 1) > 0.001) e.Add("Allocation must add up to 100%.");
         if (i.Spending.InitialRate is < 0 or > 0.5) e.Add("Initial withdrawal rate must be between 0% and 50%.");
+        if (i.Spending.Type == SpendingStrategyType.FixedAmounts)
+        {
+            if (i.Spending.FixedAmount < 0) e.Add("The amount taken from the pot cannot be negative.");
+            foreach (var st in i.Spending.AmountSteps)
+            {
+                if (st.Amount < 0) e.Add($"The amount from age {st.Age} cannot be negative.");
+                if (st.Age <= i.RetirementAge || st.Age >= i.DeathAge) e.Add($"An amount change at age {st.Age} must be after retirement and before the age of death.");
+            }
+        }
+        foreach (var c in i.Spending.RateChanges)
+        {
+            if (c.Rate is < 0 or > 0.5) e.Add($"The withdrawal rate from age {c.Age} must be between 0% and 50%.");
+            if (c.Age <= i.RetirementAge || c.Age >= i.DeathAge) e.Add($"A rate change at age {c.Age} must be after retirement and before the age of death.");
+        }
         if (i.Investment.Type is InvestmentStrategyType.DecliningGlidePath or InvestmentStrategyType.RisingGlidePath
             && (i.Investment.StartEquity is < 0 or > 1 || i.Investment.EndEquity is < 0 or > 1))
             e.Add("Glide path equity percentages must be between 0% and 100%.");

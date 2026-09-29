@@ -107,14 +107,13 @@ public class SpendingStrategyTests
     [Fact]
     public void Adjustments_can_be_combined()
     {
-        // Good/bad year cuts 10% after a bad year, then Guyton-Klinger cuts another 10% because the rate is too high
+        // Guyton-Klinger cuts 10% because the rate is too high, then a custom rule cuts another 10% after a loss
         var p = new SpendingParameters
         {
-            UseGoodBadYear = true,
             UseGuytonKlinger = true,
             FreezeAfterLoss = false,
-            BadThreshold = 0,
-            MaxCut = 0.5,
+            UseCustomRules = true,
+            Rules = [new(RuleMetric.TrailingReturn, RuleComparison.LessThan, 0, RuleAction.AdjustPercent, -0.1)],
         };
         var s = State(balance: 60_000, trailing: -0.05);
         s.InitialWithdrawalRate = 0.04;
@@ -124,8 +123,48 @@ public class SpendingStrategyTests
     [Fact]
     public void Floor_applies_after_other_adjustments()
     {
-        var p = new SpendingParameters { UseGoodBadYear = true, BadThreshold = 0, CutStep = 0.5, MaxCut = 1, UseFloorCeiling = true, Floor = -0.2 };
+        var p = new SpendingParameters
+        {
+            UseCustomRules = true,
+            Rules = [new(RuleMetric.TrailingReturn, RuleComparison.LessThan, 0, RuleAction.AdjustPercent, -0.5)],
+            UseFloorCeiling = true,
+            Floor = -0.2,
+        };
         Assert.Equal(3_200, SpendingStrategy.Next(p, State(trailing: -0.1)), 6);
+    }
+
+    [Fact]
+    public void Legacy_good_year_bad_year_becomes_rules_plus_floor_and_ceiling()
+    {
+        var p = new SpendingParameters
+        {
+            UseGoodBadYear = true, GoodThreshold = 0.1, BadThreshold = -0.1, RaiseStep = 0.06, CutStep = 0.1, MaxRaise = 0.5, MaxCut = 0.3,
+        }.Normalise();
+        Assert.False(p.UseGoodBadYear);
+        Assert.True(p.UseCustomRules);
+        Assert.Equal(
+            [
+                new SpendingRule(RuleMetric.TrailingReturn, RuleComparison.GreaterThan, 0.1, RuleAction.AdjustPercent, 0.06),
+                new SpendingRule(RuleMetric.TrailingReturn, RuleComparison.LessThan, -0.1, RuleAction.AdjustPercent, -0.1),
+            ],
+            p.Rules);
+        Assert.True(p.UseFloorCeiling);
+        Assert.Equal(-0.3, p.Floor, 9);
+        Assert.Equal(0.5, p.Ceiling, 9);
+
+        // After a bad year: cut 10%, but never below 70% of year one
+        Assert.Equal(4_000 * 0.9, SpendingStrategy.Next(p, State(trailing: -0.2)), 6);
+        Assert.Equal(4_000 * 0.7, SpendingStrategy.Next(p, State(previous: 3_000, trailing: -0.2)), 6);
+    }
+
+    [Fact]
+    public void Legacy_simple_guardrails_type_is_converted_too()
+    {
+        var p = new SpendingParameters { Type = SpendingStrategyType.SimpleGuardrails }.Normalise();
+        Assert.Equal(SpendingStrategyType.ConstantInflationAdjusted, p.Type);
+        Assert.True(p.UseCustomRules);
+        Assert.Equal(2, p.Rules.Count);
+        Assert.False(p.UseGoodBadYear);
     }
 
     [Fact]

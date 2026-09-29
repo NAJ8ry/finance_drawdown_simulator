@@ -35,7 +35,17 @@ export function AssumptionCards({ input }: { input: SimulationInput }) {
   ].filter(Boolean).join(' & ')
   return (
     <>
-      {showRate && (
+      {input.spending.type === 'FixedAmounts' ? (
+        <div className="card stat">
+          <div className="stat-value">{fmt.gbp(input.spending.fixedAmount)}</div>
+          <div className="stat-label">Taken from the pot a year</div>
+          <div className="muted small">
+            {input.spending.amountSteps?.length
+              ? input.spending.amountSteps.map((c) => `${fmt.gbp(c.amount)} from ${c.age}`).join(', ')
+              : 'Same every year'}
+          </div>
+        </div>
+      ) : showRate && (
         <div className="card stat">
           <div className="stat-value">{fmt.pctTrim(input.spending.initialRate)}</div>
           <div className="stat-label">{input.flows.length > 0 ? 'Year-one spending rate' : 'Starting withdrawal rate'}</div>
@@ -60,7 +70,7 @@ export function AssumptionCards({ input }: { input: SimulationInput }) {
               <li key={i} className={f.kind === 'Income' ? '' : 'bad'}>
                 {f.kind === 'Income' ? '+' : '−'}{fmt.gbp(f.annualAmount)}/yr {f.label || (f.kind === 'Income' ? 'income' : 'outgoing')}{' '}
                 <span className="muted">
-                  {f.endAge ? `${f.startAge}–${f.endAge}` : `from ${f.startAge}`}{f.inflationLinked ? '' : ', fixed'}
+                  {f.endAge ? `${f.startAge}–${f.endAge}` : `from ${f.startAge}`}{f.inflationLinked ? '' : ', fixed'}{f.kind === 'Income' && f.intoPot ? ', into the pot' : ''}
                 </span>
               </li>
             ))}

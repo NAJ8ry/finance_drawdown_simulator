@@ -5,6 +5,7 @@ import type {
   RuleMetric,
   SimulationInput,
   SpendingParameters,
+  SpendingRule,
   SpendingStrategyType,
 } from './types'
 
@@ -24,14 +25,10 @@ export const defaultInput: SimulationInput = {
   spending: {
     type: 'ConstantInflationAdjusted',
     initialRate: 0.04,
+    rateChanges: [],
+    fixedAmount: 20_000,
+    amountSteps: [],
     assumedRealReturn: 0.02,
-    useGoodBadYear: false,
-    goodThreshold: 0.1,
-    badThreshold: -0.1,
-    raiseStep: 0.1,
-    cutStep: 0.1,
-    maxRaise: 0.5,
-    maxCut: 0.3,
     useGuytonKlinger: false,
     upperGuardrail: 0.2,
     lowerGuardrail: 0.2,
@@ -64,8 +61,32 @@ export const defaultInput: SimulationInput = {
   },
 }
 
-/** Converts old single-strategy selections (e.g. type 'GuytonKlinger') to base + adjustments. */
+/**
+ * Converts old inputs: single-strategy selections (e.g. type 'GuytonKlinger') to base + adjustments, and the removed
+ * good year / bad year adjustment to custom rules plus floor and ceiling. Matches SpendingParameters.Normalise.
+ */
 function normaliseSpending(p: SpendingParameters): SpendingParameters {
+  return convertGoodBadYear(normaliseType(p))
+}
+
+function convertGoodBadYear(p: SpendingParameters): SpendingParameters {
+  const { useGoodBadYear, goodThreshold = 0.1, badThreshold = -0.1, raiseStep = 0.1, cutStep = 0.1, maxRaise = 0.5, maxCut = 0.3, ...rest } = p
+  if (!useGoodBadYear) return rest
+  const rules: SpendingRule[] = [
+    ...(raiseStep > 0 ? [{ metric: 'TrailingReturn', comparison: 'GreaterThan', threshold: goodThreshold, action: 'AdjustPercent', value: raiseStep } as const] : []),
+    ...(cutStep > 0 ? [{ metric: 'TrailingReturn', comparison: 'LessThan', threshold: badThreshold, action: 'AdjustPercent', value: -cutStep } as const] : []),
+  ]
+  return {
+    ...rest,
+    // Keep the user's own rules; the converted pair must apply alongside them, not instead of them
+    ...(rest.useCustomRules ? { rules: [...rules, ...rest.rules], applyAllMatches: true } : { rules, useCustomRules: true }),
+    useFloorCeiling: true,
+    floor: rest.useFloorCeiling ? Math.max(rest.floor, -maxCut) : -maxCut,
+    ceiling: rest.useFloorCeiling ? Math.min(rest.ceiling, maxRaise) : maxRaise,
+  }
+}
+
+function normaliseType(p: SpendingParameters): SpendingParameters {
   const adjusted = (patch: Partial<SpendingParameters>): SpendingParameters => ({ ...p, type: 'ConstantInflationAdjusted', ...patch })
   switch (p.type) {
     case 'SimpleGuardrails': return adjusted({ useGoodBadYear: true })
@@ -92,7 +113,7 @@ export const mergeInput = (raw: Partial<SimulationInput>): SimulationInput => ({
   investment: normaliseInvestment({ ...defaultInput.investment, ...raw.investment }),
 })
 
-export type SpendingBase = 'ConstantInflationAdjusted' | 'ConstantPercentage' | 'RemainingLife'
+export type SpendingBase = 'ConstantInflationAdjusted' | 'ConstantPercentage' | 'FixedAmounts' | 'RemainingLife'
 
 export const spendingBases: Record<SpendingBase, { label: string; description: string }> = {
   ConstantInflationAdjusted: {
@@ -104,23 +125,24 @@ export const spendingBases: Record<SpendingBase, { label: string; description: s
     label: 'Percentage of the pot',
     description: 'Take a fixed percentage of whatever the pot is worth each year. Never runs out, but income moves with the market.',
   },
+  FixedAmounts: {
+    label: 'Fixed amounts',
+    description:
+      'Take a set amount from the pot each year, and change it from any age you choose; each amount applies until the next. Pensions and other income come on top.',
+  },
   RemainingLife: {
     label: 'Spend down over remaining life',
     description: 'Each year, spend the level amount that would exactly use up the pot by the age of death at an assumed real return.',
   },
 }
 
-export type SpendingAdjustment = 'useGoodBadYear' | 'useGuytonKlinger' | 'useInflationSkip' | 'useRatchet' | 'useCustomRules' | 'useFloorCeiling'
+export type SpendingAdjustment = 'useGuytonKlinger' | 'useInflationSkip' | 'useRatchet' | 'useCustomRules' | 'useFloorCeiling'
 
 /** In the order the engine applies them. */
 export const spendingAdjustments: Record<SpendingAdjustment, { label: string; description: string }> = {
   useInflationSkip: {
     label: 'Skip inflation rise after a loss',
     description: 'No increase for inflation in a year after the portfolio lost money.',
-  },
-  useGoodBadYear: {
-    label: 'Good year / bad year',
-    description: 'After a year where the portfolio rose by at least the "good" threshold, raise spending; after a year it fell by at least the "bad" threshold, cut it.',
   },
   useGuytonKlinger: {
     label: 'Guyton-Klinger guardrails',
@@ -140,12 +162,21 @@ export const spendingAdjustments: Record<SpendingAdjustment, { label: string; de
   },
 }
 
+/** Adjustments a base has no use for: fixed amounts set every year, so there is no running level to adjust. */
+export const unusedAdjustments: Partial<Record<SpendingBase, SpendingAdjustment[]>> = {
+  FixedAmounts: ['useInflationSkip', 'useRatchet', 'useFloorCeiling'],
+}
+
+export const adjustmentUsed = (p: SpendingParameters, key: SpendingAdjustment) =>
+  !unusedAdjustments[p.type as SpendingBase]?.includes(key)
+
 /** Legacy labels, used only to describe old saved scenarios. */
 export const spendingStrategies: Record<SpendingStrategyType, { label: string }> = {
   ConstantInflationAdjusted: { label: spendingBases.ConstantInflationAdjusted.label },
   ConstantPercentage: { label: spendingBases.ConstantPercentage.label },
   RemainingLife: { label: spendingBases.RemainingLife.label },
-  SimpleGuardrails: { label: spendingAdjustments.useGoodBadYear.label },
+  FixedAmounts: { label: spendingBases.FixedAmounts.label },
+  SimpleGuardrails: { label: 'Good year / bad year' },
   GuytonKlinger: { label: spendingAdjustments.useGuytonKlinger.label },
   FloorAndCeiling: { label: spendingAdjustments.useFloorCeiling.label },
   InflationSkipAfterLoss: { label: spendingAdjustments.useInflationSkip.label },
@@ -156,7 +187,7 @@ export const spendingStrategies: Record<SpendingStrategyType, { label: string }>
 /** Short description of the whole spending plan, e.g. "Constant inflation-adjusted + Guyton-Klinger guardrails". */
 export function spendingTitle(p: SpendingParameters) {
   const base = spendingBases[p.type as SpendingBase]?.label ?? spendingStrategies[p.type].label
-  const adj = (Object.keys(spendingAdjustments) as SpendingAdjustment[]).filter((k) => p[k]).map((k) => spendingAdjustments[k].label)
+  const adj = (Object.keys(spendingAdjustments) as SpendingAdjustment[]).filter((k) => p[k] && adjustmentUsed(p, k)).map((k) => spendingAdjustments[k].label)
   return [base, ...adj].join(' + ')
 }
 

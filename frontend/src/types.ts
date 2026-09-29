@@ -10,6 +10,7 @@ export type SpendingStrategyType =
   | 'Ratchet'
   | 'RemainingLife'
   | 'CustomRules'
+  | 'FixedAmounts'
 
 export type InvestmentStrategyType =
   | 'FixedRebalance'
@@ -33,6 +34,18 @@ export interface Allocation {
   cash: number
 }
 
+/** From this age on, take this amount a year from the pot (today's money). */
+export interface SpendingStep {
+  age: number
+  amount: number
+}
+
+/** From this age on, draw from the pot at this rate instead of the initial rate. */
+export interface RateChange {
+  age: number
+  rate: number
+}
+
 export interface OneOff {
   age: number
   amount: number
@@ -48,6 +61,8 @@ export interface RecurringFlow {
   endAge: number | null
   annualAmount: number
   inflationLinked: boolean
+  /** Income that is invested rather than spent, e.g. an inheritance or house sale. */
+  intoPot?: boolean
 }
 
 export interface SpendingRule {
@@ -63,14 +78,19 @@ export interface SpendingParameters {
   /** Base: ConstantInflationAdjusted, ConstantPercentage or RemainingLife (other values are legacy). */
   type: SpendingStrategyType
   initialRate: number
+  rateChanges: RateChange[]
+  /** Fixed amounts base: yearly amount from the pot from retirement, then each step from its age. */
+  fixedAmount: number
+  amountSteps: SpendingStep[]
   assumedRealReturn: number
-  useGoodBadYear: boolean
-  goodThreshold: number
-  badThreshold: number
-  raiseStep: number
-  cutStep: number
-  maxRaise: number
-  maxCut: number
+  /** Legacy "good year / bad year" (removed): converted to custom rules plus floor and ceiling when loaded. */
+  useGoodBadYear?: boolean
+  goodThreshold?: number
+  badThreshold?: number
+  raiseStep?: number
+  cutStep?: number
+  maxRaise?: number
+  maxCut?: number
   useGuytonKlinger: boolean
   upperGuardrail: number
   lowerGuardrail: number

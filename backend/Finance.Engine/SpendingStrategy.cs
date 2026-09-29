@@ -4,7 +4,8 @@ namespace Finance.Engine;
 public sealed class PathState
 {
     public double Balance { get; set; }
-    public double InitialBalance { get; init; }
+    /// <summary>Starting balance plus any money added since (deposits, surplus income).</summary>
+    public double InitialBalance { get; set; }
     public double PeakBalance { get; set; }
     public double InitialSpending { get; set; }
     public double PreviousSpending { get; set; }
@@ -16,14 +17,20 @@ public sealed class PathState
     public double YearsRemaining { get; set; }
     public double InflationRate { get; init; }
 
-    /// <summary>Balance at the last ratchet step-up (ratchet strategy only).</summary>
+    /// <summary>Balance at the last ratchet step-up (ratchet strategy only), plus any money added since.</summary>
     public double RatchetBase { get; set; }
 
     /// <summary>Other income (pensions etc.) and regular outgoings for the coming year.</summary>
     public double Income { get; set; }
     public double Expenses { get; set; }
 
-    /// <summary>Net withdrawal from the pot as a fraction of the balance in year one.</summary>
+    /// <summary>Withdrawal rate in force this year (from <see cref="SpendingParameters.RateAt"/>); null = the initial rate.</summary>
+    public double? Rate { get; set; }
+
+    /// <summary>
+    /// Net withdrawal from the pot as a fraction of the balance in year one (or at the last rate change), taken from
+    /// the first year the pot is actually drawn on. 0 = not set yet.
+    /// </summary>
     public double InitialWithdrawalRate { get; set; }
 
     public double DrawdownFromPeak => PeakBalance > 0 ? 1 - Balance / PeakBalance : 0;
@@ -42,19 +49,24 @@ public sealed class PathState
 /// and "skipping an inflation rise" means dividing by (1 + planned inflation).
 ///
 /// Spending is what you live on. Other income pays for part of it, so the pot provides
-/// spending + regular outgoings - other income. The percentage and remaining-life bases set the pot's
-/// contribution, and other income comes on top.
+/// spending + regular outgoings - other income. The percentage, remaining-life and fixed amounts bases set the
+/// pot's contribution, and other income comes on top.
 /// </summary>
 public static class SpendingStrategy
 {
-    public static double Initial(SpendingParameters p, PathState s)
+    public static double Initial(SpendingParameters p, PathState s) => Initial(p, s, s.Balance);
+
+    /// <summary>Starting spending on a given capital: at retirement, and again at each rate change.</summary>
+    public static double Initial(SpendingParameters p, PathState s, double capital)
     {
         p.Normalise();
+        var rate = s.Rate ?? p.InitialRate;
         return p.Type switch
         {
             SpendingStrategyType.RemainingLife => RemainingLife(s.Balance, s.YearsRemaining, p.AssumedRealReturn) + s.Income,
-            SpendingStrategyType.ConstantPercentage => p.InitialRate * s.Balance + s.Income,
-            _ => p.InitialRate * s.Balance,
+            SpendingStrategyType.ConstantPercentage => rate * s.Balance + s.Income,
+            SpendingStrategyType.FixedAmounts => p.AmountAt(s.Age) + s.Income,
+            _ => rate * capital,
         };
     }
 
@@ -64,17 +76,17 @@ public static class SpendingStrategy
         p.Normalise();
         var spend = p.Type switch
         {
-            SpendingStrategyType.ConstantPercentage => p.InitialRate * s.Balance + s.Income,
+            SpendingStrategyType.ConstantPercentage => (s.Rate ?? p.InitialRate) * s.Balance + s.Income,
+            SpendingStrategyType.FixedAmounts => p.AmountAt(s.Age) + s.Income,
             SpendingStrategyType.RemainingLife => RemainingLife(s.Balance, s.YearsRemaining, p.AssumedRealReturn) + s.Income,
             _ => s.PreviousSpending,
         };
 
-        if (p.UseInflationSkip && s.TrailingReturn < 0) spend /= 1 + s.InflationRate;
-        if (p.UseGoodBadYear) spend = GoodBadYear(p, s, spend);
+        if (p.UseInflationSkip && !p.Fixed && s.TrailingReturn < 0) spend /= 1 + s.InflationRate;
         if (p.UseGuytonKlinger) spend = GuytonKlinger(p, s, spend);
-        if (p.UseRatchet) spend = Ratchet(p, s, spend);
+        if (p.UseRatchet && !p.Fixed) spend = Ratchet(p, s, spend);
         if (p.UseCustomRules) spend = CustomRules(p, s, spend);
-        if (p.UseFloorCeiling)
+        if (p.UseFloorCeiling && !p.Fixed)
         {
             var s0 = s.InitialSpending;
             spend = Math.Clamp(spend, s0 * (1 + p.Floor), s0 * (1 + Math.Max(p.Floor, p.Ceiling)));
@@ -82,19 +94,32 @@ public static class SpendingStrategy
         return Math.Max(0, spend);
     }
 
-    static double GoodBadYear(SpendingParameters p, PathState s, double spend)
+    /// <summary>
+    /// Money added to the pot this year that isn't investment growth (deposits, income beyond spending and outgoings).
+    /// A constant base only looks at the starting balance, so without this the new money would only reach spending
+    /// slowly through guardrail raises. It is treated as if it had been in the pot from the start: spending, and the
+    /// year-one level that floors, ceilings and caps are measured from, rise by the current rate on it. The percentage
+    /// and remaining-life bases already follow the balance.
+    /// </summary>
+    public static double AddCapital(SpendingParameters p, PathState s, double spend, double amount)
     {
-        if (s.TrailingReturn >= p.GoodThreshold) spend *= 1 + p.RaiseStep;
-        else if (s.TrailingReturn <= p.BadThreshold) spend *= 1 - p.CutStep;
-        var min = s.InitialSpending * (1 - p.MaxCut);
-        var max = s.InitialSpending * (1 + p.MaxRaise);
-        return Math.Clamp(spend, min, Math.Max(min, max));
+        if (p.Type != SpendingStrategyType.ConstantInflationAdjusted || amount <= 0) return spend;
+        var extra = (s.Rate ?? p.InitialRate) * amount;
+        s.InitialSpending += extra;
+        return spend + extra;
+    }
+
+    /// <summary>Shifts balance-based reference points so money paid in isn't mistaken for a market gain.</summary>
+    public static void Deposited(PathState s, double amount)
+    {
+        s.InitialBalance += amount;
+        s.RatchetBase += amount;
     }
 
     static double GuytonKlinger(SpendingParameters p, PathState s, double spend)
     {
         // Guardrails compare what is drawn from the pot (net of other income) with the year-one rate
-        var initial = s.InitialWithdrawalRate > 0 ? s.InitialWithdrawalRate : p.InitialRate;
+        var initial = s.InitialWithdrawalRate > 0 ? s.InitialWithdrawalRate : s.Rate ?? p.InitialRate;
         double Rate(double sp) => s.Balance > 0 ? s.NetWithdrawal(sp) / s.Balance : double.PositiveInfinity;
         // Freeze rule: no inflation rise after a losing year when the withdrawal rate is above the initial rate
         if (p.FreezeAfterLoss && s.TrailingReturn < 0 && Rate(spend) > initial)

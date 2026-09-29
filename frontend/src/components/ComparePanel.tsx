@@ -43,7 +43,11 @@ export function ComparePanel({ current, currentResult, scenarios }: Props) {
   const metrics: [string, (r: SimulationResult, i: SimulationInput) => string][] = [
     ['Success rate', (r) => (r.successRate == null ? '–' : `${r.successRate.toFixed(1)}%`)],
     ['Spending strategy', (_, i) => spendingTitle(i.spending)],
-    ['Starting withdrawal', (_, i) => (i.spending.type === 'RemainingLife' ? '–' : fmt.pctTrim(i.spending.initialRate))],
+    ['Starting withdrawal', (_, i) => (i.spending.type === 'RemainingLife'
+      ? '–'
+      : i.spending.type === 'FixedAmounts'
+        ? [fmt.gbp(i.spending.fixedAmount), ...(i.spending.amountSteps ?? []).map((c) => `${fmt.gbp(c.amount)} from ${c.age}`)].join(', ')
+      : [fmt.pctTrim(i.spending.initialRate), ...(i.spending.rateChanges ?? []).map((c) => `${fmt.pctTrim(c.rate)} from ${c.age}`)].join(', '))],
     ['Investment strategy', (_, i) => investmentTitle(i.investment)],
     ['Mix (shares/bonds/cash)', (_, i) => `${Math.round(i.allocation.equity * 100)}/${Math.round(i.allocation.bond * 100)}/${Math.round(i.allocation.cash * 100)}`],
     ['Ages', (_, i) => `${i.retirementAge} → ${i.deathAge}`],

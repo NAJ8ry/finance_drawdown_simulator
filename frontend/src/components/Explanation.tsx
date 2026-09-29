@@ -32,7 +32,7 @@ export function Explanation({ summary, onClose }: { summary: MarketSummary | nul
           <h3>What each month does</h3>
           <ol>
             <li>On each retirement anniversary, the spending strategy sets the year's spending.</li>
-            <li>That month's spending, plus any regular outgoings and one-offs, less any pension or other income, is taken from the pot. If income is more than you spend, the surplus is invested.</li>
+            <li>That month's spending, plus any regular outgoings and one-offs, less any pension or other income, is taken from the pot. If income is more than you spend, the surplus is invested. Income marked "Pay into the pot" (an inheritance or house sale, say) is always invested, never spent directly. Deposits and surplus income count as new capital: with a constant inflation-adjusted base, spending rises by your initial rate on them, and they don't count as growth for the ratchet or falls from the peak. If you set a new rate from a later age, spending restarts at that rate on the whole pot (including money added that year) and the guardrails and ratchet are measured from there.</li>
             <li>If there isn't enough money to pay it, the plan has run out at that age.</li>
             <li>Shares, bonds and cash grow or shrink by that historical month's return.</li>
             <li>Fees are deducted, then the investment strategy rebalances if it's due.</li>
@@ -41,14 +41,15 @@ export function Explanation({ summary, onClose }: { summary: MarketSummary | nul
           <p>
             Your spending strategy sets what you live on. Regular income such as the State Pension pays part of that, so
             the pot only has to provide the rest. Strategies defined as a percentage of the pot (constant percentage,
-            floor and ceiling, spend down) set what the pot pays, and your other income is added on top. Guardrail
+            floor and ceiling, spend down) and fixed amounts set what the pot pays, and your other income is added on top. Guardrail
             strategies judge the withdrawal rate on what actually comes out of the pot. If the pot runs out, you live on
             your other income alone.
           </p>
-          <h3>"Good year" and "bad year"</h3>
+          <h3>Last year's return</h3>
           <p>
-            Strategies that react to markets look at the portfolio's return over the previous 12 months, expressed in
-            ordinary (nominal) terms using your planned inflation rate.
+            Rules that react to markets (skipping an inflation rise, custom rules on the trailing return) look at the
+            portfolio's return over the previous 12 months, expressed in ordinary (nominal) terms using your planned
+            inflation rate.
           </p>
           <h3>Data and its limits</h3>
           <ul>

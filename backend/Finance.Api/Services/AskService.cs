@@ -266,10 +266,14 @@ public sealed class AskService(MarketDataStore store, IOptions<AskOptions> optio
             allocation {equity, bond, cash} (fractions summing to 1), spendingFloor (nullable £/yr), legacyTarget (£),
             withdrawalTiming ("Monthly" | "AnnualInAdvance"), startFrequency ("Yearly" | "Monthly"),
             oneOffs [{age, amount (+ spend, - deposit), label}],
-            flows [{label, kind ("Income" | "Expense"), startAge, endAge (null = for life), annualAmount, inflationLinked}],
-            spending {type ("ConstantInflationAdjusted" | "ConstantPercentage" | "RemainingLife"), initialRate, assumedRealReturn,
+            flows [{label, kind ("Income" | "Expense"), startAge, endAge (null = for life), annualAmount, inflationLinked,
+              intoPot (Income only: true = invested in the pot, not spent - use for inheritances, house sales etc.)}],
+            spending {type ("ConstantInflationAdjusted" | "ConstantPercentage" | "FixedAmounts" | "RemainingLife"), initialRate,
+              fixedAmount, amountSteps [{age, amount}] (FixedAmounts base: £/yr taken from the pot from retirement, then each step's amount from its age; income comes on top;
+              useInflationSkip, useRatchet and useFloorCeiling are ignored with this base),
+              rateChanges [{age, rate}] (from that age draw at the new rate; the constant base restarts at rate x pot, including money added that year),
+              assumedRealReturn,
               useInflationSkip,
-              useGoodBadYear, goodThreshold, badThreshold, raiseStep, cutStep, maxRaise, maxCut,
               useGuytonKlinger, upperGuardrail, lowerGuardrail, guardrailRaise, guardrailCut, freezeAfterLoss,
               useRatchet, ratchetTrigger, ratchetIncrease,
               useFloorCeiling, floor, ceiling,
@@ -311,12 +315,19 @@ public sealed class AskService(MarketDataStore store, IOptions<AskOptions> optio
           "skip inflation rise" rules.
         - Data: equities are US shares converted to GBP before 2010 (a proxy for global shares) and the MSCI World
           ETF after; bonds are UK gilts; cash is UK T-bills/Bank Rate; inflation is UK CPI. Tax is not modelled.
-        - Spending = a base strategy (constant inflation-adjusted, percentage of the pot, or spend-down) plus optional
-          adjustments applied each year in order: skip inflation after a loss, good year/bad year raises and cuts
-          (based on the last 12 months' portfolio return), Guyton-Klinger guardrails (based on the withdrawal rate
+        - Spending = a base strategy (constant inflation-adjusted, percentage of the pot, fixed amounts from the pot that
+          change at chosen ages, or spend-down) plus optional
+          adjustments applied each year in order: skip inflation after a loss, Guyton-Klinger guardrails (based on the withdrawal rate
           from the pot), ratchet, custom rules, then floor/ceiling. Pensions and other regular income pay part of
           spending, so the pot provides only the rest; surplus income is reinvested. Regular outgoings and one-offs
-          add to what is taken from the pot.
+          add to what is taken from the pot. With the percentage and spend-down bases, ordinary income is spent on top
+          of the pot's share, so a lump sum entered as income is spent the year it arrives unless it is marked intoPot.
+          Deposits (negative one-offs), income paid into the pot and surplus income are new capital: with the
+          constant base, spending rises by the initial rate on them from the year they arrive (as if they had been in
+          the pot from the start), and they are not counted as market growth by the ratchet or drawdown measures.
+          The withdrawal rate can change at set ages (rateChanges): at each one the constant base restarts at the new
+          rate on the whole pot, including that year's deposits and surplus income, and guardrails, the ratchet and
+          year-one limits are measured from that restart. Suggest this when a large sum arrives partway through.
         - Investment = a base (fixed mix with rebalancing, glide paths, etc.) plus an optional cash buffer holding N
           years of withdrawals, spent first when shares are down over the last 12 months.
 
