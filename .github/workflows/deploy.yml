@@ -1,0 +1,112 @@
+# Builds the React UI and the .NET API, runs the tests, and deploys both as one Azure Web App.
+#
+# The UI is built straight into the API's wwwroot (see frontend/vite.config.ts), so the API serves
+# the page and the page calls the API with relative URLs ("/api/..."). Same origin on any hostname
+# or deployment slot: no API URL baked into the build and no CORS configuration.
+#
+# One-off setup:
+#   - Repository secret AZURE_WEBAPP_PUBLISH_PROFILE: the Web App's publish profile
+#     (Azure portal > the Web App > Overview > Download publish profile; paste the whole XML).
+#   - Web App application setting REMEODY_CONNECTION_STRING: the PostgreSQL connection string.
+#     The app applies its migrations and seeds the market history on startup.
+#   - Web App runtime stack: .NET 10.
+
+name: Build and deploy
+run-name: >-
+  ${{ github.event.head_commit.message || github.event.pull_request.title || 'Build and deploy' }}
+
+env:
+  AZURE_WEBAPP_NAME: REPLACE_WITH_WEB_APP_NAME # the name of the Azure Web App
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# A newer push to main cancels an older run still in progress, so the latest always wins.
+# Pull requests get their own group and never cancel main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.x'
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Restore
+      run: dotnet restore ./backend/Finance.sln
+
+    - name: Build API
+      run: dotnet build --configuration Release --no-restore ./backend/Finance.sln
+
+    # Pure engine and parsing tests: no database or network needed
+    - name: Run tests
+      run: dotnet test ./backend/Finance.sln --no-build --configuration Release --verbosity normal
+
+    - name: npm ci
+      working-directory: frontend
+      run: npm ci
+
+    - name: Lint UI
+      working-directory: frontend
+      run: npm run lint
+
+    # Type-checks, then writes the bundle into backend/Finance.Api/wwwroot
+    - name: Build UI
+      working-directory: frontend
+      run: npm run build
+
+    - name: Publish API with UI
+      run: dotnet publish ./backend/Finance.Api/Finance.Api.csproj --configuration Release --no-restore --output ./output
+
+    - name: Check the UI is in the package
+      run: test -f ./output/wwwroot/index.html
+
+    - name: Upload package
+      uses: actions/upload-artifact@v4
+      with:
+        name: webapp
+        path: ./output
+        retention-days: 7
+
+  deploy:
+    # Pull requests build and test only
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: none
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: Production
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+    steps:
+    - name: Download package
+      uses: actions/download-artifact@v4
+      with:
+        name: webapp
+        path: ./output
+
+    - name: Deploy to Azure Web App
+      id: deploy-to-webapp
+      uses: azure/webapps-deploy@v3
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        package: ./output
