@@ -14,7 +14,7 @@ public class SimulationController(MarketDataStore store, Mortality mortality) : 
         var errors = Simulator.Validate(input);
         if (errors.Count > 0) return ValidationProblem(new ValidationProblemDetails { Detail = string.Join(" ", errors) });
 
-        var history = await store.GetAsync(ct);
+        var history = store.Months;
         if (history.Count < Simulator.MinimumMonths)
             return Problem("No market data is loaded yet.", statusCode: StatusCodes.Status503ServiceUnavailable);
 
@@ -61,7 +61,7 @@ public class SimulationController(MarketDataStore store, Mortality mortality) : 
         }
         else if (request.TargetSuccess is < 50 or > 100) return ValidationProblem(new ValidationProblemDetails { Detail = "Target success must be between 50% and 100%." });
 
-        var history = await store.GetAsync(ct);
+        var history = store.Months;
         if (history.Count < Simulator.MinimumMonths)
             return Problem("No market data is loaded yet.", statusCode: StatusCodes.Status503ServiceUnavailable);
 

@@ -1,13 +1,11 @@
-using Finance.Api.Data;
 using Finance.Api.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace Finance.Api.Controllers;
 
 [ApiController]
 [Route("api/market")]
-public class MarketController(FinanceDbContext db, MarketDataStore store, MarketDataUpdater updater) : ControllerBase
+public class MarketController(MarketDataStore store, MarketDataUpdater updater) : ControllerBase
 {
     public sealed record SourceInfo(string Series, string Period, string Source);
 
@@ -42,12 +40,9 @@ public class MarketController(FinanceDbContext db, MarketDataStore store, Market
     ];
 
     [HttpGet("summary")]
-    public async Task<MarketSummary> Summary(CancellationToken ct)
+    public MarketSummary Summary()
     {
-        var history = await store.GetAsync(ct);
-        var counts = await db.MarketMonths.GroupBy(r => r.Source).Select(g => new { g.Key, Count = g.Count() }).ToListAsync(ct);
-        var lastUpdate = await db.DataUpdateLogs.OrderByDescending(l => l.RunAt).FirstOrDefaultAsync(ct);
-        var lastOk = await db.DataUpdateLogs.Where(l => l.Success).OrderByDescending(l => l.RunAt).FirstOrDefaultAsync(ct);
+        var history = store.Months;
 
         double Annualise(IEnumerable<double> monthly)
         {
@@ -68,10 +63,10 @@ public class MarketController(FinanceDbContext db, MarketDataStore store, Market
             history.Count > 0 ? history[0].Label : null,
             history.Count > 0 ? history[^1].Label : null,
             history.Count,
-            counts.FirstOrDefault(c => c.Key == "history")?.Count ?? 0,
-            counts.FirstOrDefault(c => c.Key == "live")?.Count ?? 0,
-            lastUpdate,
-            lastOk,
+            store.HistoryMonths,
+            store.LiveMonths,
+            updater.RecentLogs.FirstOrDefault(),
+            updater.LastSuccessful,
             Annualise(history.Select(h => h.Inflation)),
             [Stats("Equities", h => h.Equity), Stats("Bonds", h => h.Bond), Stats("Cash", h => h.Cash)],
             Sources);
@@ -79,15 +74,11 @@ public class MarketController(FinanceDbContext db, MarketDataStore store, Market
 
     /// <summary>Full monthly history (nominal GBP returns and UK inflation).</summary>
     [HttpGet("months")]
-    public async Task<IEnumerable<object>> Months(CancellationToken ct)
-    {
-        var history = await store.GetAsync(ct);
-        return history.Select(h => new { month = h.Label, h.Equity, h.Bond, h.Cash, h.Inflation });
-    }
+    public IEnumerable<object> Months() =>
+        store.Months.Select(h => new { month = h.Label, h.Equity, h.Bond, h.Cash, h.Inflation });
 
     [HttpGet("updates")]
-    public async Task<List<DataUpdateLog>> Updates(CancellationToken ct) =>
-        await db.DataUpdateLogs.OrderByDescending(l => l.RunAt).Take(20).ToListAsync(ct);
+    public List<DataUpdateLog> Updates() => updater.RecentLogs;
 
     /// <summary>Fetch the latest month(s) from the live sources now.</summary>
     [HttpPost("refresh")]

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Finance.Engine;
 
 /// <summary>One month of market history. All values are nominal GBP monthly returns (0.01 = +1%).</summary>
@@ -61,6 +63,7 @@ public enum FlowKind { Income, Expense }
 /// pounds from their start age, so they lose value at the planned inflation rate.
 /// Income with <see cref="IntoPot"/> (an inheritance, a house sale) is invested rather than spent: it never counts
 /// as income on top of spending, whatever the spending strategy.
+/// A <see cref="Disabled"/> flow is kept in the plan but left out of the results, so it can be switched back on.
 /// </summary>
 public sealed record RecurringFlow(
     string? Label,
@@ -69,7 +72,8 @@ public sealed record RecurringFlow(
     int? EndAge,
     double AnnualAmount,
     bool InflationLinked = true,
-    bool IntoPot = false);
+    bool IntoPot = false,
+    bool Disabled = false);
 
 /// <summary>From <see cref="Age"/> on, take <see cref="Amount"/> a year from the pot (today's money).</summary>
 public sealed record SpendingStep(int Age, double Amount);
@@ -296,6 +300,10 @@ public sealed class SimulationInput
 
     /// <summary>Regular incomes (reduce what is drawn from the pot) and outgoings (add to it).</summary>
     public List<RecurringFlow> Flows { get; set; } = [];
+
+    /// <summary>The flows that count towards the results (switched-off ones are left out).</summary>
+    [JsonIgnore]
+    public IEnumerable<RecurringFlow> ActiveFlows => Flows.Where(f => !f.Disabled);
 
     /// <summary>
     /// Optional minimum acceptable annual spending (today's money, including other income). Dropping below it is

@@ -11,6 +11,9 @@ public sealed class MarketDataOptions
     public double UpdateIntervalHours { get; set; } = 24;
     public bool UpdateOnStartup { get; set; } = true;
 
+    /// <summary>File the fetched live months are kept in between restarts. Defaults to the local application data folder.</summary>
+    public string? SnapshotPath { get; set; }
+
     /// <summary>iShares Core MSCI World (accumulating), London listing, priced in GBp.</summary>
     public string EquityTicker { get; set; } = "SWDA.L";
 

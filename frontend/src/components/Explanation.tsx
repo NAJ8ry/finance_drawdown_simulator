@@ -6,7 +6,7 @@ export function Explanation({ summary, onClose }: { summary: MarketSummary | nul
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="explain-title" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2 id="explain-title">How this works</h2>
+          <h2 id="explain-title">Methodology &amp; data</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className="modal-body prose">

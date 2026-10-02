@@ -51,7 +51,7 @@ public sealed class AskService(MarketDataStore store, Mortality mortality, IOpti
             return;
         }
 
-        var history = await store.GetAsync(ct);
+        var history = store.Months;
         var client = new AnthropicClient { ApiKey = key };
 
         var baseline = RunSummary(request.Input, "Current plan", history);
@@ -275,7 +275,8 @@ public sealed class AskService(MarketDataStore store, Mortality mortality, IOpti
             withdrawalTiming ("Monthly" | "AnnualInAdvance"), startFrequency ("Yearly" | "Monthly"),
             oneOffs [{age, amount (+ spend, - deposit), label}],
             flows [{label, kind ("Income" | "Expense"), startAge, endAge (null = for life), annualAmount, inflationLinked,
-              intoPot (Income only: true = invested in the pot, not spent - use for inheritances, house sales etc.)}],
+              intoPot (Income only: true = invested in the pot, not spent - use for inheritances, house sales etc.),
+              disabled (true = kept in the list but left out of the results; the user can switch it back on)}],
             spending {type ("ConstantInflationAdjusted" | "ConstantPercentage" | "FixedAmounts" | "RemainingLife"), initialRate,
               fixedAmount, amountSteps [{age, amount}] (FixedAmounts base: £/yr taken from the pot from retirement, then each step's amount from its age; income comes on top;
               useInflationSkip, useRatchet and useFloorCeiling are ignored with this base),

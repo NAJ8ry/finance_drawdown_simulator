@@ -63,6 +63,8 @@ export interface RecurringFlow {
   inflationLinked: boolean
   /** Income that is invested rather than spent, e.g. an inheritance or house sale. */
   intoPot?: boolean
+  /** Kept in the list but left out of the results, so it can be switched back on. */
+  disabled?: boolean
 }
 
 export interface SpendingRule {

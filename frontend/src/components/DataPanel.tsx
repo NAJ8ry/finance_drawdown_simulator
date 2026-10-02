@@ -151,7 +151,7 @@ function GrowthChart({ months }: { months: MarketMonth[] }) {
   const hi = Math.log10(Math.max(...all))
   const x = (i: number) => m.l + (i / (months.length - 1)) * (W - m.l - m.r)
   const y = (v: number) => m.t + (1 - (Math.log10(v) - lo) / (hi - lo)) * (H - m.t - m.b)
-  const colors = ['#2b4c7e', '#8a6d3b', '#6b7280']
+  const colors = ['#1d2d48', '#a4844c', '#6b7280']
   const names = ['Shares', 'Bonds', 'Cash']
   const decades = months.map((mm, i) => ({ i, y: +mm.month.slice(0, 4), mo: mm.month.slice(5) }))
     .filter((d) => d.mo === '01' && d.y % 20 === 0)

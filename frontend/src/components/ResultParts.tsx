@@ -1,4 +1,4 @@
-import { fmt, investmentTitle, spendingTitle, startUnit } from '../defaults'
+import { activeFlows, fmt, investmentTitle, spendingTitle, startUnit } from '../defaults'
 import type { SimulationInput, SimulationResult } from '../types'
 import type { LegendState } from './PathChart'
 
@@ -48,6 +48,7 @@ export function Headline({ result, input }: { result: SimulationResult; input: S
 export function AssumptionCards({ input }: { input: SimulationInput }) {
   const a = input.allocation
   const showRate = input.spending.type !== 'RemainingLife'
+  const flows = activeFlows(input)
   const mix = [
     a.equity > 0 && `${Math.round(a.equity * 100)}% Global shares`,
     a.bond > 0 && `${Math.round(a.bond * 100)}% Bonds`,
@@ -68,12 +69,12 @@ export function AssumptionCards({ input }: { input: SimulationInput }) {
       ) : showRate && (
         <div className="card stat">
           <div className="stat-value">{fmt.pctTrim(input.spending.initialRate)}</div>
-          <div className="stat-label">{input.flows.length > 0 ? 'Year-one spending rate' : 'Starting withdrawal rate'}</div>
+          <div className="stat-label">{flows.length > 0 ? 'Year-one spending rate' : 'Starting withdrawal rate'}</div>
           <div className="muted small">{fmt.gbp(input.startingBalance * input.spending.initialRate)} a year</div>
         </div>
       )}
       <div className="card assumptions">
-        <div className="assumptions-title">Portfolio Assumptions</div>
+        <div className="assumptions-title">Portfolio assumptions</div>
         <ul>
           <li>{input.investment.type === 'DecliningGlidePath' || input.investment.type === 'RisingGlidePath'
             ? `Shares ${Math.round(input.investment.startEquity * 100)}% → ${Math.round(input.investment.endEquity * 100)}%`
@@ -83,11 +84,11 @@ export function AssumptionCards({ input }: { input: SimulationInput }) {
           <li>No tax · {investmentTitle(input.investment)}</li>
         </ul>
       </div>
-      {input.flows.length > 0 && (
+      {flows.length > 0 && (
         <div className="card assumptions">
           <div className="assumptions-title">Income &amp; outgoings</div>
           <ul>
-            {input.flows.map((f, i) => (
+            {flows.map((f, i) => (
               <li key={i} className={f.kind === 'Income' ? '' : 'bad'}>
                 {f.kind === 'Income' ? '+' : '−'}{fmt.gbp(f.annualAmount)}/yr {f.label || (f.kind === 'Income' ? 'income' : 'outgoing')}{' '}
                 <span className="muted">
@@ -189,7 +190,7 @@ const legendItems: { key: keyof LegendState; label: string; swatch: string }[] =
   { key: 'likely', label: 'Likely', swatch: 'dot likely' },
   { key: 'lessLikely', label: 'Less likely', swatch: 'dot less' },
   { key: 'rare', label: 'Rare', swatch: 'dot rare' },
-  { key: 'calendar', label: 'Calendar year', swatch: 'line hover' },
+  { key: 'calendar', label: 'Highlight line on hover', swatch: 'line hover' },
   { key: 'oneOffs', label: 'One-offs, income & outgoings', swatch: 'markers' },
   { key: 'partial', label: 'Recent (partial)', swatch: 'line partial' },
 ]
@@ -217,19 +218,24 @@ export function Legend({ legend, onChange, hide = [] }: {
 }) {
   return (
     <div className="legend">
-      {legendItems.filter((i) => !hide.includes(i.key)).map((i) => (
-        <button key={i.key} className={`legend-item${legend[i.key] ? ' on' : ''}`} aria-pressed={legend[i.key]}
-          onClick={() => {
-            const next = { ...legend, [i.key]: !legend[i.key] }
-            // Hiding the lines with no ranges showing would leave an empty chart, so show the ranges
-            if (i.key === 'paths' && !next.paths && !next.likely && !next.lessLikely && !next.rare)
-              Object.assign(next, { likely: true, lessLikely: true, rare: true })
-            onChange(next)
-          }}>
-          {i.swatch === 'markers' ? <MarkerSwatch /> : <span className={`swatch ${i.swatch}`} />}
-          {i.label}
-        </button>
-      ))}
+      {legendItems.filter((i) => !hide.includes(i.key)).map((i) => {
+        // Highlighting picks one of the start-date lines, so it has nothing to act on while they're hidden
+        const disabled = i.key === 'calendar' && !legend.paths
+        return (
+          <button key={i.key} className={`legend-item${legend[i.key] ? ' on' : ''}`} aria-pressed={legend[i.key]}
+            disabled={disabled} title={disabled ? 'Show "All start dates" to highlight a line' : undefined}
+            onClick={() => {
+              const next = { ...legend, [i.key]: !legend[i.key] }
+              // Hiding the lines with no ranges showing would leave an empty chart, so show the ranges
+              if (i.key === 'paths' && !next.paths && !next.likely && !next.lessLikely && !next.rare)
+                Object.assign(next, { likely: true, lessLikely: true, rare: true })
+              onChange(next)
+            }}>
+            {i.swatch === 'markers' ? <MarkerSwatch /> : <span className={`swatch ${i.swatch}`} />}
+            {i.label}
+          </button>
+        )
+      })}
     </div>
   )
 }

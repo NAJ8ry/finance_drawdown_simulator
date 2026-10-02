@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { flowsAt, fmt, toNominal, yearsFromToday } from '../defaults'
+import { activeFlows, flowsAt, fmt, toNominal, yearsFromToday } from '../defaults'
 import type { PathResult, SimulationInput, SimulationResult } from '../types'
 
 export type Series = 'balance' | 'income' | 'withdrawal'
@@ -47,7 +47,26 @@ const HEIGHT = 440
 const M = { top: 16, right: 20, bottom: 46, left: 64 }
 /** How close (px) the pointer must be to a line to pick that start date rather than show the year summary. */
 const PICK_DISTANCE = 6
-const COLORS = { best: '#2e7d5b', median: '#2b4c7e', worst: '#b23a3a', hover: '#111827', band: '#5b6fa8' }
+const FALLBACK_COLORS = { best: '#2f6b4f', median: '#1d2d48', worst: '#9b3232', hover: '#111a2b', band: '#54688a' }
+type ChartColors = typeof FALLBACK_COLORS
+
+/** The line colours come from the theme (--chart-*), resolved to real colours so the PNG export keeps them. */
+function readChartColors(): ChartColors {
+  const css = getComputedStyle(document.documentElement)
+  const pick = (k: keyof ChartColors) => css.getPropertyValue(`--chart-${k}`).trim() || FALLBACK_COLORS[k]
+  return { best: pick('best'), median: pick('median'), worst: pick('worst'), hover: pick('hover'), band: pick('band') }
+}
+
+function useChartColors(): ChartColors {
+  const [colors, setColors] = useState(readChartColors)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const update = () => setColors(readChartColors())
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  return colors
+}
 
 function percentile(sorted: number[], p: number) {
   if (sorted.length === 0) return 0
@@ -60,6 +79,7 @@ function percentile(sorted: number[], p: number) {
 export function PathChart({ result, input, series, money, zoom, legend, selected, onSelect }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const COLORS = useChartColors()
   const [width, setWidth] = useState(800)
   // index = the start date under the pointer, or null for the summary of year k across all start dates
   const [hover, setHover] = useState<{ index: number | null; k: number; x: number; y: number } | null>(null)
@@ -298,7 +318,7 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
               )
             })}
         {legend.oneOffs &&
-          input.flows
+          activeFlows(input)
             .filter((f) => f.startAge > input.retirementAge && f.startAge < input.deathAge)
             .map((f, i) => {
               const x = xOf(f.startAge - input.retirementAge)
@@ -469,7 +489,7 @@ export async function chartToPng(container: HTMLElement): Promise<string | null>
   const clone = svg.cloneNode(true) as SVGSVGElement
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
   const style = document.createElement('style')
-  style.textContent = `text{font:12px Inter,system-ui,sans-serif;fill:#5b6475}.axis-title{font-weight:600;fill:#1f2937}.grid{stroke:#e5e7eb}.axis{stroke:#9ca3af}.retire-line{stroke:#9ca3af;stroke-dasharray:3 3}.oneoff-out{fill:#b23a3a}.oneoff-in{fill:#2e7d5b}`
+  style.textContent = `text{font:12px Inter,system-ui,sans-serif;fill:#5b6475}.axis-title{font-weight:600;fill:#1f2937}.grid{stroke:#e5e7eb}.axis{stroke:#9ca3af}.retire-line{stroke:#9ca3af;stroke-dasharray:3 3}.oneoff-out{fill:#9b3232}.oneoff-in{fill:#2f6b4f}`
   clone.prepend(style)
   const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' }))
   try {

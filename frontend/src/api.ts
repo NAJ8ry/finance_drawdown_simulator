@@ -36,6 +36,37 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return res.status === 204 ? (undefined as T) : res.json()
 }
 
+const SCENARIOS_STORAGE = 'finance.scenarios'
+
+function readScenarios(): Scenario[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(SCENARIOS_STORAGE) ?? '[]')
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
+function writeScenarios(list: Scenario[]) {
+  localStorage.setItem(SCENARIOS_STORAGE, JSON.stringify(list))
+}
+
+/** Updates the scenario with this id, or adds a new one if the id is null or no longer saved. */
+function saveScenario(id: string | null, name: string, input: SimulationInput): Scenario {
+  const list = readScenarios()
+  const now = new Date().toISOString()
+  const existing = list.find((s) => s.id === id)
+  const saved: Scenario = {
+    id: existing?.id ?? crypto.randomUUID(),
+    name: name.trim(),
+    input,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  }
+  writeScenarios([...list.filter((s) => s.id !== saved.id), saved])
+  return saved
+}
+
 export const api = {
   simulate: (input: SimulationInput, signal?: AbortSignal) =>
     request<SimulationResult>('/api/simulate', { method: 'POST', body: JSON.stringify(input), signal }),
@@ -47,12 +78,11 @@ export const api = {
   marketMonths: () => request<MarketMonth[]>('/api/market/months'),
   marketUpdates: () => request<DataUpdateLog[]>('/api/market/updates'),
   refreshMarket: () => request<DataUpdateLog>('/api/market/refresh', { method: 'POST' }),
-  listScenarios: () => request<Scenario[]>('/api/scenarios'),
-  createScenario: (name: string, input: SimulationInput) =>
-    request<Scenario>('/api/scenarios', { method: 'POST', body: JSON.stringify({ name, input }) }),
-  updateScenario: (id: string, name: string, input: SimulationInput) =>
-    request<Scenario>(`/api/scenarios/${id}`, { method: 'PUT', body: JSON.stringify({ name, input }) }),
-  deleteScenario: (id: string) => request<void>(`/api/scenarios/${id}`, { method: 'DELETE' }),
+  // Saved scenarios live in this browser only: the proof of concept has no database or user accounts
+  listScenarios: async () => readScenarios().sort((a, b) => a.name.localeCompare(b.name)),
+  createScenario: async (name: string, input: SimulationInput) => saveScenario(null, name, input),
+  updateScenario: async (id: string, name: string, input: SimulationInput) => saveScenario(id, name, input),
+  deleteScenario: async (id: string) => writeScenarios(readScenarios().filter((s) => s.id !== id)),
   askStatus: () => request<{ serverKey: boolean; model: string }>('/api/ask/status'),
 }
 

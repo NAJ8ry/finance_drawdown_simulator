@@ -1,71 +1,108 @@
-using Finance.Api.Data;
+using System.Globalization;
 using Finance.Engine;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Finance.Api.Services;
 
-/// <summary>In-memory cache of the market history held in Postgres. Invalidated whenever the updater writes.</summary>
-public sealed class MarketDataStore(IServiceScopeFactory scopes)
+/// <summary>
+/// Market history held in memory: the seed file's months, then the live months the updater publishes.
+/// The live months are also written to a snapshot file, so a restart has them before its first fetch finishes.
+/// </summary>
+public sealed class MarketDataStore
 {
-    readonly SemaphoreSlim _lock = new(1, 1);
-    IReadOnlyList<MarketMonth>? _cache;
+    sealed record State(IReadOnlyList<MarketMonth> Months, int HistoryMonths, int LiveMonths);
 
-    public async Task<IReadOnlyList<MarketMonth>> GetAsync(CancellationToken ct = default)
+    readonly IReadOnlyList<MarketMonth> _history;
+    readonly string _snapshotPath;
+    readonly ILogger<MarketDataStore> _logger;
+    volatile State _state;
+
+    public MarketDataStore(IOptions<MarketDataOptions> options, ILogger<MarketDataStore> logger)
     {
-        if (_cache is { } cached) return cached;
-        await _lock.WaitAsync(ct);
+        _logger = logger;
+        _history = ReadCsv(Path.Combine(AppContext.BaseDirectory, "SeedData", "history.csv"));
+        _snapshotPath = options.Value.SnapshotPath is { Length: > 0 } path ? path : DefaultSnapshotPath();
+        _state = Combine(ReadSnapshot(options.Value.LiveStartMonth));
+    }
+
+    public IReadOnlyList<MarketMonth> Months => _state.Months;
+    public int HistoryMonths => _state.HistoryMonths;
+    public int LiveMonths => _state.LiveMonths;
+
+    /// <summary>Replaces the live months. Seed months from the first live month onwards are dropped.</summary>
+    public void PublishLive(IReadOnlyList<MarketMonth> live)
+    {
+        _state = Combine(live);
         try
         {
-            if (_cache is { } again) return again;
-            using var scope = scopes.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<FinanceDbContext>();
-            var rows = await db.MarketMonths.AsNoTracking().OrderBy(r => r.Month).ToListAsync(ct);
-            _cache = rows.Select(r => new MarketMonth(r.Month.Year, r.Month.Month, r.Equity, r.Bond, r.Cash, r.Inflation))
-                .ToList();
-            return _cache;
+            Directory.CreateDirectory(Path.GetDirectoryName(_snapshotPath)!);
+            var temp = _snapshotPath + ".tmp";
+            WriteCsv(temp, live);
+            File.Move(temp, _snapshotPath, overwrite: true);
         }
-        finally
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _lock.Release();
+            _logger.LogWarning(ex, "Could not write the live market data snapshot to {Path}", _snapshotPath);
         }
     }
 
-    public void Invalidate() => _cache = null;
-}
-
-/// <summary>Loads SeedData/history.csv (built by tools/build_history.py) into the database.</summary>
-public static class HistorySeeder
-{
-    public static async Task SeedAsync(FinanceDbContext db, string csvPath, ILogger logger, CancellationToken ct = default)
+    State Combine(IReadOnlyList<MarketMonth> live)
     {
-        var rows = ReadCsv(csvPath);
-        var existing = await db.MarketMonths.CountAsync(r => r.Source == "history", ct);
-        if (existing == rows.Count) return;
-
-        logger.LogInformation("Seeding {Count} months of historical market data", rows.Count);
-        await db.MarketMonths.Where(r => r.Source == "history").ExecuteDeleteAsync(ct);
-        var now = DateTime.UtcNow;
-        foreach (var r in rows) r.UpdatedAt = now;
-        db.MarketMonths.AddRange(rows);
-        await db.SaveChangesAsync(ct);
+        if (live.Count == 0) return new State(_history, _history.Count, 0);
+        var history = _history.TakeWhile(m => Index(m) < Index(live[0])).ToList();
+        return new State([.. history, .. live], history.Count, live.Count);
     }
 
-    public static List<MarketMonthRow> ReadCsv(string path)
+    static int Index(MarketMonth m) => m.Year * 12 + m.Month;
+
+    /// <summary>The snapshot is used only if it starts at the configured first live month.</summary>
+    IReadOnlyList<MarketMonth> ReadSnapshot(string liveStartMonth)
     {
-        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        try
+        {
+            if (!File.Exists(_snapshotPath)) return [];
+            var live = ReadCsv(_snapshotPath);
+            if (live.Count > 0 && live[0].Label == liveStartMonth)
+            {
+                _logger.LogInformation("Loaded {Count} live months to {Last} from {Path}", live.Count, live[^1].Label, _snapshotPath);
+                return live;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or IndexOutOfRangeException)
+        {
+            _logger.LogWarning(ex, "Ignoring the unreadable live market data snapshot at {Path}", _snapshotPath);
+        }
+        return [];
+    }
+
+    static string DefaultSnapshotPath()
+    {
+        // On Azure App Service for Linux this is under /home, which survives restarts and deployments
+        var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(root.Length > 0 ? root : Path.GetTempPath(), "finance-simulator", "live-months.csv");
+    }
+
+    /// <summary>Reads months in the format of SeedData/history.csv (built by tools/build_history.py).</summary>
+    public static List<MarketMonth> ReadCsv(string path)
+    {
+        var inv = CultureInfo.InvariantCulture;
         return File.ReadLines(path)
             .Skip(1)
             .Where(l => !string.IsNullOrWhiteSpace(l))
             .Select(l => l.Split(','))
-            .Select(f => new MarketMonthRow
+            .Select(f =>
             {
-                Month = DateOnly.ParseExact(f[0] + "-01", "yyyy-MM-dd", inv),
-                Equity = double.Parse(f[1], inv),
-                Bond = double.Parse(f[2], inv),
-                Cash = double.Parse(f[3], inv),
-                Inflation = double.Parse(f[4], inv),
-                Source = "history",
+                var month = DateOnly.ParseExact(f[0] + "-01", "yyyy-MM-dd", inv);
+                return new MarketMonth(month.Year, month.Month, double.Parse(f[1], inv), double.Parse(f[2], inv), double.Parse(f[3], inv), double.Parse(f[4], inv));
             })
             .ToList();
+    }
+
+    static void WriteCsv(string path, IEnumerable<MarketMonth> months)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        File.WriteAllLines(path, months
+            .Select(m => string.Join(',', m.Label, m.Equity.ToString("R", inv), m.Bond.ToString("R", inv), m.Cash.ToString("R", inv), m.Inflation.ToString("R", inv)))
+            .Prepend("month,equity,bond,cash,inflation"));
     }
 }

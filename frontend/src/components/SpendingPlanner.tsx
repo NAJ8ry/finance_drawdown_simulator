@@ -102,9 +102,15 @@ export function SpendingPlanner({ input, onApply }: { input: SimulationInput; on
   }, [plan])
 
   const update = (i: number, patch: Partial<SpendingStep>) => draft && setDraft(draft.map((s, j) => (j === i ? { ...s, ...patch } : s)))
-  /** Raise or lower every amount by the same share, rounded to £100; the history check reruns by itself. */
+  /**
+   * Raise or lower every amount by the same share; the history check reruns by itself. Rounded to £100, or to £10 or
+   * £1 where the change is smaller than that (1% of £4,000 is £40), so a small step on a small amount still moves it.
+   */
   const scale = (direction: 1 | -1) =>
-    draft && setDraft(draft.map((s) => ({ ...s, amount: Math.max(0, Math.round((s.amount * (1 + direction * scaleStep)) / 100) * 100) })))
+    draft && setDraft(draft.map((s) => {
+      const unit = [100, 10].find((u) => u <= s.amount * scaleStep) ?? 1
+      return { ...s, amount: Math.max(0, Math.round((s.amount * (1 + direction * scaleStep)) / unit) * unit) }
+    }))
   const apply = () => {
     if (!plan) return
     setPrevious(input.spending)

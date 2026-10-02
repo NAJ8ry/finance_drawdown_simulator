@@ -7,8 +7,6 @@
 # One-off setup:
 #   - Repository secret AZURE_WEBAPP_PUBLISH_PROFILE: the Web App's publish profile
 #     (Azure portal > the Web App > Overview > Download publish profile; paste the whole XML).
-#   - Web App application setting REMEODY_CONNECTION_STRING: the PostgreSQL connection string.
-#     The app applies its migrations and seeds the market history on startup.
 #   - Web App runtime stack: .NET 10.
 
 name: Build and deploy

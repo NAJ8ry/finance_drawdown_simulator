@@ -141,46 +141,68 @@ export default function App() {
     }
   }
 
-  const menu: [string, () => void, boolean?][] = [
-    [scenario ? `Save "${scenario.name}"` : 'Save scenario…', () => saveScenario(false)],
-    ['Save as new scenario…', () => saveScenario(true), !scenario],
-    ['Open scenario…', () => setShowScenarios(true)],
-    ['Export paths (CSV)', exportCsv],
-    ['Export chart (PNG)', () => { setTab('balance'); setTimeout(exportPng, 50) }],
-    ['Reset to defaults', () => { setInput(defaultInput); setScenario(null) }],
+  const menu: { title: string; items: [string, () => void, boolean?][] }[] = [
+    {
+      title: 'Scenario',
+      items: [
+        // The defaults: a £100k pot with 4% a year taken from it, paid monthly
+        ['New scenario', () => { setInput(defaultInput); setScenario(null) }],
+        [scenario ? `Save "${scenario.name}"` : 'Save scenario…', () => saveScenario(false)],
+        ['Save as new scenario…', () => saveScenario(true), !scenario],
+        ['Open saved scenario…', () => setShowScenarios(true)],
+      ],
+    },
+    {
+      title: 'Export',
+      items: [
+        ['Paths as CSV', exportCsv],
+        ['Chart as PNG', () => { setTab('balance'); setTimeout(exportPng, 50) }],
+      ],
+    },
   ]
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuOpen])
 
   const isChart = tab === 'balance' || tab === 'income'
 
   return (
     <div className="app">
       <header className="topbar">
-        <div className="title">
-          <h1>{tab === 'income' ? 'Spending' : 'Balance'}</h1>
+        <div className="brand">
+          <span className="wordmark">Retirement Drawdown</span>
+          <span className="brand-sep" aria-hidden="true" />
           <span className="subtitle">{strategyTitle(input)}</span>
           {scenario && <span className="pill">{scenario.name}</span>}
         </div>
-        <div className="top-actions">
-          <button className="btn" onClick={() => setShowExplain(true)}>
-            <span className="info-dot">i</span> Explanation
-          </button>
-          <div className="menu-wrap">
-            <button className="btn" onClick={() => setMenuOpen((o) => !o)} aria-expanded={menuOpen}>
-              Actions ▾
-            </button>
-            {menuOpen && (
-              <>
-                <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
-                <div className="menu" role="menu">
-                  {menu.filter(([, , hidden]) => !hidden).map(([label, fn]) => (
-                    <button key={label} role="menuitem" onClick={() => { setMenuOpen(false); fn() }}>{label}</button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <span className="poc-note">Remeody · Proof of concept · Not for commercial use</span>
+        <button className="burger" onClick={() => setMenuOpen(true)} aria-label="Open menu" aria-expanded={menuOpen}>
+          <span /><span /><span />
+        </button>
       </header>
+      {menuOpen && (
+        <>
+          <div className="drawer-backdrop" onClick={() => setMenuOpen(false)} />
+          <nav className="drawer" aria-label="Menu">
+            <div className="drawer-head">
+              <span className="eyebrow">Menu</span>
+              <button className="icon-btn" onClick={() => setMenuOpen(false)} aria-label="Close menu">×</button>
+            </div>
+            {menu.map(({ title, items }, g) => (
+              <div className="drawer-group" key={g}>
+                {title && <div className="eyebrow">{title}</div>}
+                {items.filter(([, , hidden]) => !hidden).map(([label, fn]) => (
+                  <button key={label} onClick={() => { setMenuOpen(false); fn() }}>{label}</button>
+                ))}
+              </div>
+            ))}
+          </nav>
+        </>
+      )}
 
       <div className="layout">
         <aside className={`sidebar${inputsOpen ? '' : ' collapsed'}`}>
@@ -217,6 +239,7 @@ export default function App() {
               </button>
             ))}
             {loading && <span className="spinner" aria-label="Running" />}
+            <button className="method-link" onClick={() => setShowExplain(true)}>Methodology &amp; data</button>
           </nav>
 
           {shownError && (
@@ -244,7 +267,6 @@ export default function App() {
                 ? <Legend legend={legend} onChange={setLegend} />
                 : <Legend legend={spendingLegend} onChange={setSpendingLegend} hide={spendingHiddenLegend} />}
               <p className="chart-note">
-                <span className="info-dot small">i</span>
                 {tab === 'balance'
                   ? `This page shows what your portfolio could have been worth at each birthday if you had retired in each ${startUnit(input)} of history. The success rate, bands and figures use the same start dates. Some market conditions are better than others. Ideally, your plan should be able to survive severe market conditions.`
                   : spendingView === 'income'
@@ -268,6 +290,7 @@ export default function App() {
           <AskPanel input={input} />
 
           <footer className="footer muted small">
+            <div className="poc-footer">Remeody · Proof of concept · Not for commercial use</div>
             {summary?.lastMonth && <>Market data up to {fmt.month(summary.lastMonth)} · </>}
             {result && <>{result.paths.length.toLocaleString()} start {startUnit(input)}s from {result.firstStart && fmt.month(result.firstStart)} · </>}
             Not financial advice. Past performance is not a guide to future returns.

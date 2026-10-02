@@ -146,8 +146,7 @@ public class SimulatorTests
     public void Higher_withdrawal_never_improves_success_on_real_history()
     {
         // T-05 on the real seed data
-        var history = HistorySeeder.ReadCsv(SeedPath())
-            .Select(r => new MarketMonth(r.Month.Year, r.Month.Month, r.Equity, r.Bond, r.Cash, r.Inflation)).ToList();
+        var history = MarketDataStore.ReadCsv(SeedPath());
         double? last = 100;
         foreach (var rate in new[] { 0.03, 0.035, 0.04, 0.05, 0.06 })
         {
@@ -162,8 +161,7 @@ public class SimulatorTests
     public void Baseline_on_seed_history_is_in_a_plausible_range()
     {
         // T-03: 60/40, 4%, 34 years, 0.5% fees — UK-based research puts this around 75–90%
-        var history = HistorySeeder.ReadCsv(SeedPath())
-            .Select(r => new MarketMonth(r.Month.Year, r.Month.Month, r.Equity, r.Bond, r.Cash, r.Inflation)).ToList();
+        var history = MarketDataStore.ReadCsv(SeedPath());
         var result = Simulator.Run(new SimulationInput(), history);
         Assert.InRange(result.SuccessRate!.Value, 70, 95);
         Assert.StartsWith("196", result.Paths[result.WorstIndex!.Value].Start);
@@ -427,6 +425,20 @@ public class SimulatorTests
         var path = Simulator.RunPath(input, RealReturns.From(Flat(120)), 0, "x");
         Assert.True(path.Failed);
         Assert.Equal(3_000, path.Spending[^1], 6);
+    }
+
+    [Fact]
+    public void Disabled_flow_is_left_out()
+    {
+        var input = Input(i =>
+        {
+            i.Spending.InitialRate = 0;
+            i.Flows = [new RecurringFlow("Mortgage", FlowKind.Expense, 60, 63, 2_000, Disabled: true)];
+        });
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(120)), 0, "x");
+        Assert.Equal(100_000, path.EndBalance, 6);
+        var off = new SimulationInput { Flows = [new RecurringFlow("Pension", FlowKind.Income, 70, 65, 1_000, Disabled: true)] };
+        Assert.DoesNotContain(Simulator.Validate(off), e => e.Contains("end age"));
     }
 
     [Fact]

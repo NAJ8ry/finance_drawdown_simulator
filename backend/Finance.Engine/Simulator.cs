@@ -234,7 +234,7 @@ public static class Simulator
         var income = new double[years];
         var expenses = new double[years];
         var intoPot = new double[years];
-        foreach (var f in input.Flows)
+        foreach (var f in input.ActiveFlows)
         {
             var end = f.EndAge ?? input.DeathAge;
             var from = Math.Max(f.StartAge, input.RetirementAge);
@@ -275,7 +275,7 @@ public static class Simulator
     {
         var p = input.Spending;
         var ages = new HashSet<int>(p.Fixed ? p.AmountSteps.Select(s => s.Age) : p.RateChanges.Select(c => c.Age));
-        foreach (var f in input.Flows.Where(f => f.Kind == FlowKind.Income && !f.IntoPot))
+        foreach (var f in input.ActiveFlows.Where(f => f.Kind == FlowKind.Income && !f.IntoPot))
         {
             ages.Add(f.StartAge);
             if (f.EndAge is { } end) ages.Add(end);
@@ -409,7 +409,7 @@ public static class Simulator
             && (i.Investment.StartEquity is < 0 or > 1 || i.Investment.EndEquity is < 0 or > 1))
             e.Add("Glide path equity percentages must be between 0% and 100%.");
         if (i.Investment.BufferYears < 0) e.Add("Cash buffer years cannot be negative.");
-        foreach (var f in i.Flows)
+        foreach (var f in i.ActiveFlows)
         {
             var name = string.IsNullOrWhiteSpace(f.Label) ? f.Kind.ToString().ToLowerInvariant() : $"\"{f.Label}\"";
             if (f.AnnualAmount < 0) e.Add($"The amount for {name} cannot be negative.");

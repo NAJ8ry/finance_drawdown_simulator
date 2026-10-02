@@ -1,13 +1,22 @@
 using System.Globalization;
-using Finance.Api.Data;
-using Microsoft.EntityFrameworkCore;
+using Finance.Engine;
 using Microsoft.Extensions.Options;
 
 namespace Finance.Api.Services;
 
+public class DataUpdateLog
+{
+    public long Id { get; set; }
+    public DateTime RunAt { get; set; }
+    public bool Success { get; set; }
+    public int MonthsWritten { get; set; }
+    public string? LastMonth { get; set; }
+    public string Message { get; set; } = "";
+}
+
 /// <summary>
 /// Keeps market data current: on startup and then every <see cref="MarketDataOptions.UpdateIntervalHours"/>,
-/// fetches the live sources, validates them and replaces the "live" months in the database.
+/// fetches the live sources, validates them and replaces the "live" months in the store.
 /// </summary>
 public sealed class MarketDataUpdater(
     IServiceScopeFactory scopes,
@@ -15,7 +24,24 @@ public sealed class MarketDataUpdater(
     IOptions<MarketDataOptions> options,
     ILogger<MarketDataUpdater> logger) : BackgroundService
 {
+    const int LogsKept = 20;
+
     readonly SemaphoreSlim _running = new(1, 1);
+    readonly object _logLock = new();
+    readonly List<DataUpdateLog> _logs = [];
+    long _lastId;
+    DataUpdateLog? _lastSuccessful;
+
+    /// <summary>The most recent runs since the API started, newest first.</summary>
+    public List<DataUpdateLog> RecentLogs
+    {
+        get { lock (_logLock) return [.. _logs]; }
+    }
+
+    public DataUpdateLog? LastSuccessful
+    {
+        get { lock (_logLock) return _lastSuccessful; }
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -49,12 +75,15 @@ public sealed class MarketDataUpdater(
         try
         {
             using var scope = scopes.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<FinanceDbContext>();
             var source = scope.ServiceProvider.GetRequiredService<LiveMarketDataSource>();
-            var log = await UpdateAsync(db, source, ct);
-            db.DataUpdateLogs.Add(log);
-            await db.SaveChangesAsync(ct);
-            if (log.Success) store.Invalidate();
+            var log = await UpdateAsync(source, ct);
+            lock (_logLock)
+            {
+                log.Id = ++_lastId;
+                _logs.Insert(0, log);
+                if (_logs.Count > LogsKept) _logs.RemoveAt(_logs.Count - 1);
+                if (log.Success) _lastSuccessful = log;
+            }
             logger.Log(log.Success ? LogLevel.Information : LogLevel.Warning, "Market data update: {Message}", log.Message);
             return log;
         }
@@ -64,7 +93,7 @@ public sealed class MarketDataUpdater(
         }
     }
 
-    async Task<DataUpdateLog> UpdateAsync(FinanceDbContext db, LiveMarketDataSource source, CancellationToken ct)
+    async Task<DataUpdateLog> UpdateAsync(LiveMarketDataSource source, CancellationToken ct)
     {
         var log = new DataUpdateLog { RunAt = DateTime.UtcNow };
         var start = DateOnly.ParseExact(options.Value.LiveStartMonth + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -94,28 +123,14 @@ public sealed class MarketDataUpdater(
             return log;
         }
 
-        var existing = await db.MarketMonths.CountAsync(r => r.Source == "live", ct);
+        var existing = store.LiveMonths;
         if (rows.Count < existing)
         {
             log.Message = $"Live sources returned {rows.Count} months but {existing} are stored; keeping stored data.";
             return log;
         }
 
-        var now = DateTime.UtcNow;
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await db.MarketMonths.Where(r => r.Month >= start).ExecuteDeleteAsync(ct);
-        db.MarketMonths.AddRange(rows.Select(r => new MarketMonthRow
-        {
-            Month = r.Month,
-            Equity = r.Equity,
-            Bond = r.Bond,
-            Cash = r.Cash,
-            Inflation = r.Inflation,
-            Source = "live",
-            UpdatedAt = now,
-        }));
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
+        store.PublishLive(rows.Select(r => new MarketMonth(r.Month.Year, r.Month.Month, r.Equity, r.Bond, r.Cash, r.Inflation)).ToList());
 
         log.Success = true;
         log.MonthsWritten = rows.Count;

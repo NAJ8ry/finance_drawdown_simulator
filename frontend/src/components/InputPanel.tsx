@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import {
+  activeFlows,
   adjustmentUsed,
   fmt,
   investmentStrategies,
@@ -128,7 +129,7 @@ export function InputPanel({ input, onChange }: Props) {
         <SelectField<SpendingBase> label="Base" value={input.spending.type as SpendingBase} options={spendingBases}
           onChange={(type) => setSpending({ type })} />
         <p className="note">{spendingBases[input.spending.type as SpendingBase]?.description}</p>
-        <SpendingBaseFields p={input.spending} set={setSpending} balance={input.startingBalance} hasIncome={input.flows.length > 0} />
+        <SpendingBaseFields p={input.spending} set={setSpending} balance={input.startingBalance} hasIncome={activeFlows(input).length > 0} />
         {input.spending.type === 'FixedAmounts' && <AmountSteps input={input} set={setSpending} />}
         {input.spending.type !== 'RemainingLife' && input.spending.type !== 'FixedAmounts' && <RateChanges input={input} set={setSpending} />}
         <div className="adjustments-title">Adjustments <span className="muted small">(tick any combination)</span></div>
@@ -439,7 +440,7 @@ function FlowList({ input, onChange }: { input: SimulationInput; onChange: (flow
   return (
     <>
       {flows.map((f, i) => (
-        <div className={`flow ${f.kind === 'Income' ? 'income' : 'expense'}`} key={i}>
+        <div className={`flow ${f.kind === 'Income' ? 'income' : 'expense'}${f.disabled ? ' off' : ''}`} key={i}>
           <div className="flow-head">
             <input className="flow-label" placeholder={f.kind === 'Income' ? 'e.g. Workplace pension' : 'e.g. Mortgage'}
               value={f.label ?? ''} onChange={(e) => update(i, { label: e.target.value })} aria-label="Name" />
@@ -447,8 +448,12 @@ function FlowList({ input, onChange }: { input: SimulationInput; onChange: (flow
               <option value="Income">Income</option>
               <option value="Expense">Outgoing</option>
             </select>
+            <button className="switch" role="switch" aria-checked={!f.disabled} aria-label="Include in the plan"
+              title={f.disabled ? 'Left out of the results – click to include' : 'Included – click to leave out without deleting'}
+              onClick={() => update(i, { disabled: !f.disabled })} />
             <button className="icon-btn" title="Remove" aria-label="Remove" onClick={() => onChange(flows.filter((_, j) => j !== i))}>×</button>
           </div>
+          {f.disabled && <p className="flow-off-note">Left out of the results. Switch it back on to include it.</p>}
           <div className="row-3">
             <NumberField label="Per year" prefix="£" value={f.annualAmount} min={0} step={500}
               onChange={(v) => update(i, { annualAmount: v ?? 0 })} />

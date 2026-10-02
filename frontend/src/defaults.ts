@@ -251,9 +251,12 @@ export const startUnit = (input: SimulationInput) => (input.startFrequency === '
 /** Converts a real (today's money) value into nominal money that many years from today, using the planned inflation. */
 export const toNominal = (value: number, years: number, inflation: number) => value * Math.pow(1 + inflation, years)
 
+/** The regular incomes and outgoings that count towards the results (switched-off ones are left out). */
+export const activeFlows = (input: SimulationInput) => input.flows.filter((f) => !f.disabled)
+
 /** Regular incomes and outgoings in force at an age, in today's money, as the simulator sees them. */
 export function flowsAt(input: SimulationInput, age: number) {
-  return input.flows
+  return activeFlows(input)
     .filter((f) => age >= f.startAge && age < (f.endAge ?? input.deathAge))
     .map((f) => ({
       label: f.label || (f.kind === 'Income' ? 'Income' : 'Outgoing'),
