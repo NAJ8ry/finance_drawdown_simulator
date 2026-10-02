@@ -301,6 +301,23 @@ public class SimulatorTests
     }
 
     [Fact]
+    public void Capital_paid_into_the_pot_does_not_count_as_taken_from_it()
+    {
+        var input = Input(i =>
+        {
+            i.Spending.Type = SpendingStrategyType.FixedAmounts;
+            i.Spending.FixedAmount = 4_000;
+            i.Flows = [new RecurringFlow("Inheritance", FlowKind.Income, 62, 63, 500_000, IntoPot: true)];
+            i.OneOffs = [new OneOff(64, -20_000), new OneOff(65, 3_000)];
+        });
+        var path = Simulator.RunPath(input, RealReturns.From(Flat(120)), 0, "x");
+        // The inheritance at 62 and the deposit at 64 leave the record alone; the one-off cost at 65 is taken out
+        double[] expected = [4_000, 4_000, 4_000, 4_000, 4_000, 7_000, 4_000, 4_000, 4_000, 4_000];
+        Assert.Equal(expected, path.Withdrawals.Select(w => Math.Round(w, 6)));
+        Assert.Equal(100_000 + 500_000 + 20_000 - expected.Sum(), path.EndBalance, 6);
+    }
+
+    [Fact]
     public void Fixed_amounts_take_each_amount_until_the_next_with_income_on_top()
     {
         var input = Input(i =>

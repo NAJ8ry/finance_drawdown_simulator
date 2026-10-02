@@ -8,8 +8,8 @@ import { InputPanel } from './components/InputPanel'
 import { SpendingPlanner } from './components/SpendingPlanner'
 import { chartToPng, defaultLegend, PathChart, type LegendState, type Money, type Series } from './components/PathChart'
 import { AssumptionCards, Headline, KeyFigures, Legend, spendingHiddenLegend, strategyTitle, Tables } from './components/ResultParts'
-import { defaultInput, fmt, mergeInput, startUnit, toNominal, yearsFromToday } from './defaults'
-import type { MarketSummary, Scenario, SimulationInput, SimulationResult } from './types'
+import { defaultInput, fmt, incomeByYear, mergeInput, planIsStale, startUnit, toNominal, yearsFromToday } from './defaults'
+import type { MarketSummary, Scenario, SimulationInput, SimulationResult, SpendingParameters } from './types'
 
 type Tab = 'balance' | 'income' | 'plan' | 'tables' | 'compare' | 'data'
 
@@ -141,6 +141,34 @@ export default function App() {
     }
   }
 
+  // One-click re-draft of a spending plan whose pensions and other income have changed since it was drafted
+  const [redrafting, setRedrafting] = useState(false)
+  const [redraft, setRedraft] = useState<{ applied: SpendingParameters; previous: SpendingParameters } | null>(null)
+  const redraftPlan = async () => {
+    const fit = input.spending.planBasis?.fit
+    if (!fit) return
+    setRedrafting(true)
+    try {
+      const r = await api.fitSpending(input, fit.pattern, fit.targetSuccess, fit.maxLifetimeRuin)
+      if (!r.feasible) {
+        setToast('No spending plan meets the target with these incomes and outgoings. Open Spending plan to review it.')
+        return
+      }
+      const applied: SpendingParameters = {
+        ...input.spending,
+        fixedAmount: r.spending.fixedAmount,
+        amountSteps: r.spending.amountSteps,
+        planBasis: { fit, retirementAge: input.retirementAge, income: incomeByYear(input) },
+      }
+      setRedraft({ applied, previous: input.spending })
+      setInput({ ...input, spending: applied })
+    } catch (e) {
+      setToast(`Could not re-draft: ${(e as Error).message}`)
+    } finally {
+      setRedrafting(false)
+    }
+  }
+
   const menu: { title: string; items: [string, () => void, boolean?][] }[] = [
     {
       title: 'Scenario',
@@ -249,6 +277,28 @@ export default function App() {
             </div>
           )}
 
+          {tab === 'income' && planIsStale(input) && (
+            <div className="banner warn">
+              Your Fixed amounts list came from a spending plan drafted for different pensions and other income than you
+              have now, so total spending may jump or dip where an income changed.{' '}
+              {input.spending.planBasis?.fit && (
+                <>
+                  <button className="link" disabled={redrafting} onClick={redraftPlan}>
+                    {redrafting ? 'Re-drafting…' : 'Re-draft for current incomes'}
+                  </button>
+                  {' · '}
+                </>
+              )}
+              <button className="link" onClick={() => setTab('plan')}>Review in Spending plan</button>
+            </div>
+          )}
+          {tab === 'income' && redraft && input.spending === redraft.applied && (
+            <div className="banner info">
+              Spending plan re-drafted for your current incomes.{' '}
+              <button className="link" onClick={() => { setInput({ ...input, spending: redraft.previous }); setRedraft(null) }}>Undo</button>
+            </div>
+          )}
+
           {isChart && result && (
             <div className="card chart-card" ref={chartRef}>
               <div className="zoom">
@@ -271,7 +321,7 @@ export default function App() {
                   ? `This page shows what your portfolio could have been worth at each birthday if you had retired in each ${startUnit(input)} of history. The success rate, bands and figures use the same start dates. Some market conditions are better than others. Ideally, your plan should be able to survive severe market conditions.`
                   : spendingView === 'income'
                     ? 'What you live on each year (from the pot plus pensions and other income) for every historical start date. Flat lines mean steady income; strategies that react to markets trade steadier pots for more variable income.'
-                    : 'What is actually taken from the pot each year, after pensions and other income. Below zero means income exceeded spending and the surplus was invested.'}
+                    : 'What is actually taken from the pot each year, after pensions and other income. Below zero means income exceeded spending and the surplus was invested. Money paid into the pot, such as an inheritance, is not counted.'}
               </p>
               <p className="disclaimer">For illustrative purposes only</p>
             </div>

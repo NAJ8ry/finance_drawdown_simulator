@@ -285,6 +285,8 @@ select { border: 1px solid var(--border-strong); border-radius: 3px; padding: 7p
 @keyframes spin { to { transform: rotate(360deg); } }
 .banner { padding: 10px 14px; border-radius: 4px; margin-bottom: 12px; }
 .banner.error { background: var(--bad-soft); color: var(--bad); }
+.banner.warn { background: var(--warn-soft); color: var(--warn); }
+.banner.info { background: var(--surface-2); color: var(--text-2); }
 
 /* ---------- Chart ---------- */
 .chart-card { padding: 16px 16px 12px; position: relative; }

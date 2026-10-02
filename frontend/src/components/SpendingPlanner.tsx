@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type SpendingPatternInfo } from '../api'
-import { fmt, otherIncomeAt } from '../defaults'
-import type { SimulationInput, SimulationResult, SpendingParameters, SpendingStep } from '../types'
+import { fmt, incomeByYear, otherIncomeAt } from '../defaults'
+import type { PlanBasis, SimulationInput, SimulationResult, SpendingParameters, SpendingStep } from '../types'
 import { NumberField, SelectField } from './Fields'
 
 const TARGETS = [90, 95, 99]
@@ -22,6 +22,7 @@ function draftSpending(base: SpendingParameters, draft: SpendingStep[]): Spendin
     useRatchet: false,
     useInflationSkip: false,
     useFloorCeiling: false,
+    planBasis: null,
   }
 }
 
@@ -46,7 +47,13 @@ export function SpendingPlanner({ input, onApply }: { input: SimulationInput; on
   const [target, setTarget] = useState(95)
   const [maxRuin, setMaxRuin] = useState(5)
   const lifetime = input.lifeTable !== 'None'
-  const [draft, setDraft] = useState<SpendingStep[] | null>(null)
+  const [draft, setDraftSteps] = useState<SpendingStep[] | null>(null)
+  // What a research draft was fitted to; cleared as soon as the amounts are changed by hand
+  const [draftBasis, setDraftBasis] = useState<PlanBasis | null>(null)
+  const setDraft = (steps: SpendingStep[], basis: PlanBasis | null = null) => {
+    setDraftSteps(steps)
+    setDraftBasis(basis)
+  }
   const [drafting, setDrafting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [check, setCheck] = useState<SimulationResult | null>(null)
@@ -78,7 +85,11 @@ export function SpendingPlanner({ input, onApply }: { input: SimulationInput; on
           : `Even taking nothing from the pot, your outgoings and one-offs run it out in more than ${100 - target}% of start dates. Look at the outgoings (care costs, for example) or the investment mix first.`)
         return
       }
-      setDraft(tidy(input, [{ age: input.retirementAge, amount: fit.spending.fixedAmount }, ...fit.spending.amountSteps]))
+      setDraft(tidy(input, [{ age: input.retirementAge, amount: fit.spending.fixedAmount }, ...fit.spending.amountSteps]), {
+        fit: { pattern, targetSuccess: target, maxLifetimeRuin: lifetime ? maxRuin : null },
+        retirementAge: input.retirementAge,
+        income: incomeByYear(input),
+      })
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -114,7 +125,10 @@ export function SpendingPlanner({ input, onApply }: { input: SimulationInput; on
   const apply = () => {
     if (!plan) return
     setPrevious(input.spending)
-    onApply(plan.spending)
+    onApply({
+      ...plan.spending,
+      planBasis: draftBasis ?? { fit: null, retirementAge: input.retirementAge, income: incomeByYear(input) },
+    })
   }
   const inUse = !!current && !!draft && JSON.stringify(current) === JSON.stringify(draft) && input.spending.type === 'FixedAmounts'
   const chosen = patterns.find((p) => p.id === pattern)
@@ -141,7 +155,7 @@ export function SpendingPlanner({ input, onApply }: { input: SimulationInput; on
             {drafting ? 'Working it out…' : 'Draft from research'}
           </button>
           {current && (
-            <button className="btn" onClick={() => setDraft(tidy(input, current))}>Start from my Fixed amounts</button>
+            <button className="btn" onClick={() => setDraft(tidy(input, current), input.spending.planBasis ?? null)}>Start from my Fixed amounts</button>
           )}
           {!draft && (
             <button className="btn" onClick={() => setDraft([{ age: input.retirementAge, amount: 20_000 }])}>Start from scratch</button>
@@ -231,7 +245,7 @@ export function SpendingPlanner({ input, onApply }: { input: SimulationInput; on
                 }}>
                 + Add a step
               </button>
-              <button className="btn small" onClick={() => setDraft(tidy(input, draft))} title="Sort the steps by age and drop duplicates">Tidy</button>
+              <button className="btn small" onClick={() => setDraft(tidy(input, draft), draftBasis)} title="Sort the steps by age and drop duplicates">Tidy</button>
             </div>
           </div>
 

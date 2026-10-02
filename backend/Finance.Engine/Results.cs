@@ -32,7 +32,10 @@ public sealed class PathResult
     /// <summary>Annual spending (what you live on, including other income) for each year of retirement.</summary>
     public required double[] Spending { get; init; }
 
-    /// <summary>Net amount taken from the pot each year (negative when income was paid into it).</summary>
+    /// <summary>
+    /// Net amount taken from the pot each year: negative when other income exceeded spending and the surplus was
+    /// invested. Capital paid in (income marked as into the pot, one-off deposits) is not counted.
+    /// </summary>
     public required double[] Withdrawals { get; init; }
 }
 

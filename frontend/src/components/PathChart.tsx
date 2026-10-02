@@ -120,7 +120,7 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
     return niceCeil(Math.max(likelyTop, floor))
   }, [bands, series, input.startingBalance])
   const yMax = yMaxFit / zoom
-  // Withdrawals go negative when other income is paid into the pot
+  // Withdrawals go negative when other income exceeds spending and the surplus is invested
   const yMin = useMemo(() => {
     const bottom = Math.min(0, ...bands.map((b) => b[0]))
     return bottom < 0 ? (bottom * 1.25) / zoom : 0

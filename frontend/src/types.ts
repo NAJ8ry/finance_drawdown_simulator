@@ -75,6 +75,15 @@ export interface SpendingRule {
   value: number
 }
 
+/** What a spending plan was drafted for, kept so the app can tell when it has gone stale. Not used by the engine. */
+export interface PlanBasis {
+  /** The research pattern and target it was fitted to; null when the amounts were set or changed by hand. */
+  fit: { pattern: string; targetSuccess: number; maxLifetimeRuin: number | null } | null
+  retirementAge: number
+  /** Pensions and other income to spend in each year of retirement, as they were when the plan was drafted. */
+  income: number[]
+}
+
 /** Base strategy plus any number of adjustments (use* flags), applied in a fixed order each year. */
 export interface SpendingParameters {
   /** Base: ConstantInflationAdjusted, ConstantPercentage or RemainingLife (other values are legacy). */
@@ -111,6 +120,8 @@ export interface SpendingParameters {
   applyAllMatches: boolean
   /** Legacy base for the old CustomRules strategy. */
   baseType?: SpendingStrategyType | null
+  /** Set when the Fixed amounts list comes from the Spending plan tab. */
+  planBasis?: PlanBasis | null
 }
 
 export interface InvestmentParameters {

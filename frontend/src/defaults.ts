@@ -273,6 +273,20 @@ export function flowsAt(input: SimulationInput, age: number) {
 export const otherIncomeAt = (input: SimulationInput, age: number) =>
   flowsAt(input, age).filter((f) => f.kind === 'Income' && !f.intoPot).reduce((sum, f) => sum + f.amount, 0)
 
+/** Pensions and other income to spend in each year of retirement: what a spending plan's amounts are sized around. */
+export const incomeByYear = (input: SimulationInput) =>
+  Array.from({ length: Math.max(0, input.deathAge - input.retirementAge) }, (_, k) => otherIncomeAt(input, input.retirementAge + k))
+
+/** True when the Fixed amounts list came from a spending plan drafted for different other income than there is now. */
+export function planIsStale(input: SimulationInput) {
+  const basis = input.spending.planBasis
+  if (input.spending.type !== 'FixedAmounts' || !basis) return false
+  const now = incomeByYear(input)
+  return basis.retirementAge !== input.retirementAge
+    || basis.income.length !== now.length
+    || now.some((v, k) => Math.abs(v - basis.income[k]) >= 1)
+}
+
 /** Years from today to year k of retirement: inflation runs from the current age, or from retirement if it isn't set. */
 export const yearsFromToday = (input: SimulationInput, k: number) =>
   k + Math.max(0, input.retirementAge - (input.currentAge ?? input.retirementAge))

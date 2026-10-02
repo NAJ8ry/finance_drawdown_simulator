@@ -179,7 +179,8 @@ public static class Simulator
                 SpendingStrategy.Deposited(state, -withdrawal);
                 peak += -withdrawal;
             }
-            path.Withdrawals[m / 12] += withdrawal;
+            // Capital paid in (an inheritance, a one-off deposit) is not money taken out, so it is left out of the record
+            path.Withdrawals[m / 12] += withdrawal + intoPot[m / 12] / 12 + Math.Max(0, -extra);
 
             var before = holdings.Sum();
             var i = start + m;
