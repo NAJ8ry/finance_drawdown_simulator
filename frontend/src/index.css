@@ -383,6 +383,7 @@ tr.clickable:hover td { background: var(--surface-2); }
 
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--on-ink); border-bottom: 1px solid var(--brass); padding: 10px 16px; border-radius: 4px; z-index: 60; }
 .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); text-align: center; }
+.copyright { margin-top: 6px; }
 
 /* ---------- Regular income & outgoings ---------- */
 .flow { border: 1px solid var(--border); border-left: 3px solid var(--good); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 8px; background: var(--surface-2); }

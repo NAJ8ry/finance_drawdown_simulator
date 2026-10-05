@@ -39,12 +39,12 @@ export function Explanation({ summary, onClose }: { summary: MarketSummary | nul
             following your own generation through the tables. Source: Office for National Statistics licensed under the
             Open Government Licence v.3.0.
           </p>
-          <h3>Real and nominal</h3>
+          <h3>Today's money</h3>
           <p>
-            <strong>Real</strong> shows everything in today's money. Each historical month's return is adjusted by that
-            month's actual UK inflation, so the ups and downs of history are kept in the right order. <strong>Nominal</strong>{' '}
-            shows the same results in future pounds, grown by your planned constant inflation rate from today: your
-            current age if you have entered one, otherwise the day you retire.
+            Every amount is in today's money, so £1 at age 90 buys what £1 buys now. Each historical month's return is
+            adjusted by that month's actual UK inflation, so the ups and downs of history are kept in the right order.
+            Your planned inflation rate is only used to shrink income that isn't inflation-linked, and by strategies that
+            skip an inflation rise.
           </p>
           <h3>What each month does</h3>
           <ol>

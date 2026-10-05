@@ -184,12 +184,12 @@ export function KeyFigures({ result, input, onSelect }: {
 
 const legendItems: { key: keyof LegendState; label: string; swatch: string }[] = [
   { key: 'paths', label: 'All start dates', swatch: 'line paths' },
-  { key: 'best', label: 'Best case', swatch: 'line best' },
+  { key: 'best', label: 'Best start', swatch: 'line best' },
   { key: 'median', label: 'Median', swatch: 'line median' },
-  { key: 'worst', label: 'Worst case', swatch: 'line worst' },
-  { key: 'likely', label: 'Likely', swatch: 'dot likely' },
-  { key: 'lessLikely', label: 'Less likely', swatch: 'dot less' },
-  { key: 'rare', label: 'Rare', swatch: 'dot rare' },
+  { key: 'worst', label: 'Worst start', swatch: 'line worst' },
+  { key: 'likely', label: 'Half of outcomes', swatch: 'dot likely' },
+  { key: 'lessLikely', label: '8 in 10 outcomes', swatch: 'dot less' },
+  { key: 'rare', label: '9 in 10 outcomes', swatch: 'dot rare' },
   { key: 'calendar', label: 'Highlight line on hover', swatch: 'line hover' },
   { key: 'oneOffs', label: 'One-offs, income & outgoings', swatch: 'markers' },
   { key: 'partial', label: 'Recent (partial)', swatch: 'line partial' },
@@ -210,12 +210,16 @@ function MarkerSwatch() {
 export const spendingHiddenLegend: (keyof LegendState)[] =
   ['paths', 'calendar', 'best', 'median', 'worst', 'likely', 'lessLikely', 'rare', 'partial']
 
-export function Legend({ legend, onChange, hide = [] }: {
+export function Legend({ legend, onChange, hide = [], result }: {
   legend: LegendState
   onChange: (l: LegendState) => void
   /** Items to leave out of this chart's legend. */
   hide?: (keyof LegendState)[]
+  /** Names the best and worst lines after the start date they follow. */
+  result?: SimulationResult | null
 }) {
+  const startOf = (index: number | null | undefined) => (index != null && result?.paths[index] ? `: retired ${fmt.month(result.paths[index].start)}` : '')
+  const dated: Partial<Record<keyof LegendState, string>> = { best: startOf(result?.bestIndex), worst: startOf(result?.worstIndex) }
   return (
     <div className="legend">
       {legendItems.filter((i) => !hide.includes(i.key)).map((i) => {
@@ -232,7 +236,7 @@ export function Legend({ legend, onChange, hide = [] }: {
               onChange(next)
             }}>
             {i.swatch === 'markers' ? <MarkerSwatch /> : <span className={`swatch ${i.swatch}`} />}
-            {i.label}
+            {i.label}{dated[i.key] ?? ''}
           </button>
         )
       })}

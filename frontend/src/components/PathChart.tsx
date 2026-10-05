@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { activeFlows, flowsAt, fmt, toNominal, yearsFromToday } from '../defaults'
+import { activeFlows, flowsAt, fmt } from '../defaults'
 import type { PathResult, SimulationInput, SimulationResult } from '../types'
 
 export type Series = 'balance' | 'income' | 'withdrawal'
-export type Money = 'Real' | 'Nominal'
 
 export interface LegendState {
   /** One faint line per historical start date. */
@@ -36,7 +35,6 @@ interface Props {
   result: SimulationResult
   input: SimulationInput
   series: Series
-  money: Money
   zoom: number
   legend: LegendState
   selected: number | null
@@ -76,7 +74,7 @@ function percentile(sorted: number[], p: number) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (r - lo)
 }
 
-export function PathChart({ result, input, series, money, zoom, legend, selected, onSelect }: Props) {
+export function PathChart({ result, input, series, zoom, legend, selected, onSelect }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const COLORS = useChartColors()
@@ -93,15 +91,12 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
   }, [])
 
   const years = input.deathAge - input.retirementAge
-  const infl = input.inflationRate
 
-  // Values per path per year, converted to the chosen money basis
-  const data = useMemo(() => {
-    return result.paths.map((p) => {
-      const raw = series === 'balance' ? p.balances : series === 'income' ? p.spending : p.withdrawals
-      return money === 'Nominal' ? raw.map((v, k) => toNominal(v, yearsFromToday(input, k), infl)) : raw
-    })
-  }, [result, series, money, infl, input])
+  // Values per path per year, in today's money
+  const data = useMemo(
+    () => result.paths.map((p) => (series === 'balance' ? p.balances : series === 'income' ? p.spending : p.withdrawals)),
+    [result, series],
+  )
 
   const bands = useMemo(() => {
     const complete = result.paths.map((p, i) => (p.partial ? -1 : i)).filter((i) => i >= 0)
@@ -367,7 +362,7 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
         </div>
       )}
       {hover && picked == null && (
-        <YearSummary result={result} input={input} k={hover.k} money={money} x={hover.x} y={hover.y} width={width} />
+        <YearSummary result={result} input={input} k={hover.k} x={hover.x} y={hover.y} width={width} />
       )}
       {hover && picked != null && activePath && (
         <div className="tooltip" style={{ left: Math.min(hover.x + 14, width - 230), top: Math.max(8, hover.y - 90) }}>
@@ -375,7 +370,7 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
           <div>
             Age {input.retirementAge + hover.k}: {fmt.gbp(data[picked][hover.k])}
             {series === 'balance' && hover.k < activePath.spending.length && (
-              <> · spending {fmt.gbp(money === 'Nominal' ? toNominal(activePath.spending[hover.k], yearsFromToday(input, hover.k), infl) : activePath.spending[hover.k])}/yr</>
+              <> · spending {fmt.gbp(activePath.spending[hover.k])}/yr</>
             )}
           </div>
           <div className={activePath.failed ? 'bad' : activePath.partial ? 'muted' : 'good'}>
@@ -398,18 +393,17 @@ const SUMMARY_WIDTH = 270
  * What happens in one year of retirement: the plan's own income, outgoings and one-offs, plus the typical (median)
  * spending, withdrawal and balance across all complete start dates, with the 10th–90th percentile range.
  */
-function YearSummary({ result, input, k, money, x, y, width }: {
+function YearSummary({ result, input, k, x, y, width }: {
   result: SimulationResult
   input: SimulationInput
   k: number
-  money: Money
   x: number
   y: number
   width: number
 }) {
   const age = input.retirementAge + k
   const years = input.deathAge - input.retirementAge
-  const cash = (v: number) => fmt.gbp(money === 'Nominal' ? toNominal(v, yearsFromToday(input, k), input.inflationRate) : v)
+  const cash = (v: number) => fmt.gbp(v)
   const complete = result.paths.filter((p) => !p.partial)
 
   const flows = flowsAt(input, age).map((f) => ({ ...f, label: f.label + (f.intoPot ? ' (into the pot)' : '') }))
@@ -433,7 +427,7 @@ function YearSummary({ result, input, k, money, x, y, width }: {
     <div className="tooltip year-summary"
       style={{ left: Math.max(4, left), top: below ? y + 14 : y - 14, width: SUMMARY_WIDTH, transform: below ? undefined : 'translateY(-100%)' }}>
       <strong>Age {age}</strong>
-      <span className="muted small"> · year {k + 1} of retirement{money === 'Nominal' ? ' · future £' : " · today's £"}</span>
+      <span className="muted small"> · year {k + 1} of retirement · today's £</span>
 
       {inYear && (
         <div className="ys-section">

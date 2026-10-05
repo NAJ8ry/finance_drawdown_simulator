@@ -150,8 +150,8 @@ Historical returns contain the inflation of their era (e.g. 1970s UK inflation a
 
 1. Convert every historical nominal return to a **real return** using the historical UK CPI for the same month.
 2. Run the whole simulation **in real terms**. Constant-inflation-adjusted spending is then simply a flat real amount.
-3. **Real view** = the simulated real values.
-4. **Nominal view** = real value × (1 + planned inflation)^(t/12). This means the user's constant inflation rate drives the nominal display and any nominal-denominated inputs, such as fixed nominal pensions (v1.1).
+3. Every result is shown in real terms (today's money). There is no nominal view: it was dropped because, with no tax modelled, it changes no decision.
+4. The user's constant inflation rate is used only for nominal-denominated inputs, such as fixed nominal pensions, and by rules that skip an inflation rise.
 
 This preserves the historical *sequence of real returns*, which is what determines success, while honouring the user's constant inflation assumption.
 
@@ -181,7 +181,7 @@ For each path, and for each month m from 0 to (death age − retirement age) × 
 - EN-07: Performance target: under 1 second for about 1,800 start months × 600 months on a typical laptop. This suggests a vectorised or typed-array implementation and a Web Worker if the engine runs in the browser.
 
 ### 6.4 Best, median and worst paths
-Paths are ranked by the **real ending balance**. For failed paths, ties are broken by the age of failure, with earlier failure counting as worse. The highlighted Best, Median and Worst lines are the 100th, 50th and 0th percentile paths. The Likely, Less likely and Rare shaded bands are the 25–75, 10–90 and 5–95 percentile envelopes by age.
+Paths are ranked by the **real ending balance**. For failed paths, ties are broken by the age of failure, with earlier failure counting as worse. The highlighted Best start and Worst start lines are the top- and bottom-ranked paths, labelled with their start date (e.g. "Worst start: retired Jan 1937"). The Median line is the 50th percentile at each age, not a single path. The shaded bands, labelled Half, 8 in 10 and 9 in 10 of outcomes, are the 25–75, 10–90 and 5–95 percentile envelopes by age.
 
 ---
 
@@ -231,7 +231,7 @@ The history runs from **Feb 1871 to the latest complete month**. It is stitched 
 - UI-02: A card showing the **starting withdrawal rate** and a **Portfolio Assumptions** card (allocation, fees, tax).
 - UI-03: **Balance chart.**
   - It has one line per path, with age on the x-axis and £ on the y-axis.
-  - It has a Nominal / Real toggle and zoom in / out.
+  - It shows today's money only (no Nominal / Real toggle; see §6.1) and has zoom in / out.
   - A dashed "Retirement age" marker sits at the start.
   - Partial paths are drawn in a distinct style (e.g. dashed or faded).
   - Failed paths end at the £0 axis.
@@ -284,7 +284,7 @@ The history runs from **Feb 1871 to the latest complete month**. It is stitched 
 
 ### 11.1 Assumptions
 - A single retiree. The horizon ends at a fixed age of death, not a mortality table.
-- Returns are the historical sequence of real returns. The user's constant inflation affects nominal display and nominal inputs only (§6.1).
+- Returns are the historical sequence of real returns. The user's constant inflation affects nominal inputs only (§6.1).
 - No tax in v1, and no transaction costs.
 
 ### 11.2 Open questions

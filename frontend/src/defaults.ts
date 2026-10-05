@@ -248,9 +248,6 @@ export const fmt = {
 /** "year" or "month": the unit of historical start dates in use. */
 export const startUnit = (input: SimulationInput) => (input.startFrequency === 'Monthly' ? 'month' : 'year')
 
-/** Converts a real (today's money) value into nominal money that many years from today, using the planned inflation. */
-export const toNominal = (value: number, years: number, inflation: number) => value * Math.pow(1 + inflation, years)
-
 /** The regular incomes and outgoings that count towards the results (switched-off ones are left out). */
 export const activeFlows = (input: SimulationInput) => input.flows.filter((f) => !f.disabled)
 
@@ -286,7 +283,3 @@ export function planIsStale(input: SimulationInput) {
     || basis.income.length !== now.length
     || now.some((v, k) => Math.abs(v - basis.income[k]) >= 1)
 }
-
-/** Years from today to year k of retirement: inflation runs from the current age, or from retirement if it isn't set. */
-export const yearsFromToday = (input: SimulationInput, k: number) =>
-  k + Math.max(0, input.retirementAge - (input.currentAge ?? input.retirementAge))

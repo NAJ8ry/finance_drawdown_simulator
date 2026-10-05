@@ -70,8 +70,8 @@ export function InputPanel({ input, onChange }: Props) {
         )}
         {retiringLater && (
           <p className="note">
-            All amounts are in today's money. Future pounds (the "Nominal" view) grow with planned inflation from today,
-            {' '}{input.retirementAge - (input.currentAge ?? 0)} years before you retire.
+            All amounts are in today's money, including the pot you expect to have when you retire
+            {' '}{input.retirementAge - (input.currentAge ?? 0)} years from now.
           </p>
         )}
       </Section>

@@ -6,9 +6,9 @@ import { DataPanel } from './components/DataPanel'
 import { Explanation } from './components/Explanation'
 import { InputPanel } from './components/InputPanel'
 import { SpendingPlanner } from './components/SpendingPlanner'
-import { chartToPng, defaultLegend, PathChart, type LegendState, type Money, type Series } from './components/PathChart'
+import { chartToPng, defaultLegend, PathChart, type LegendState, type Series } from './components/PathChart'
 import { AssumptionCards, Headline, KeyFigures, Legend, spendingHiddenLegend, strategyTitle, Tables } from './components/ResultParts'
-import { defaultInput, fmt, incomeByYear, mergeInput, planIsStale, startUnit, toNominal, yearsFromToday } from './defaults'
+import { defaultInput, fmt, incomeByYear, mergeInput, planIsStale, startUnit } from './defaults'
 import type { MarketSummary, Scenario, SimulationInput, SimulationResult, SpendingParameters } from './types'
 
 type Tab = 'balance' | 'income' | 'plan' | 'tables' | 'compare' | 'data'
@@ -31,7 +31,6 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [tab, setTab] = useState<Tab>('balance')
-  const [money, setMoney] = useState<Money>('Real')
   const [spendingView, setSpendingView] = useState<Series>('income')
   const [zoom, setZoom] = useState(1)
   const [legend, setLegend] = useState<LegendState>(defaultLegend)
@@ -107,13 +106,13 @@ export default function App() {
     const header = ['start', 'status', 'fail_age', ...Array.from({ length: years + 1 }, (_, k) => `balance_age_${input.retirementAge + k}`)]
     const lines = result.paths.map((p) => {
       const status = p.failed ? 'ran_out' : p.partial ? 'partial' : p.succeeded ? 'lasted' : 'below_legacy'
-      const vals = p.balances.map((v, k) => Math.round(money === 'Nominal' ? toNominal(v, yearsFromToday(input, k), input.inflationRate) : v))
+      const vals = p.balances.map((v) => Math.round(v))
       return [p.start, status, p.failAge ?? '', ...vals].join(',')
     })
     const summaryLines = [
       `# success_rate,${result.successRate?.toFixed(2) ?? ''}`,
       `# complete_paths,${result.completeCount}`,
-      `# money,${money}`,
+      `# money,real (today's money)`,
       `# data_to,${result.dataLastMonth}`,
     ]
     const blob = new Blob([[...summaryLines, header.join(','), ...lines].join('\n')], { type: 'text/csv' })
@@ -242,13 +241,6 @@ export default function App() {
 
         <main className="main">
           <div className="summary-row">
-            {isChart && (
-              <div className="segmented" role="group" aria-label="Money basis">
-                {(['Nominal', 'Real'] as Money[]).map((m) => (
-                  <button key={m} className={money === m ? 'on' : ''} onClick={() => setMoney(m)}>{m}</button>
-                ))}
-              </div>
-            )}
             {result && <Headline result={result} input={input} />}
             <AssumptionCards input={input} />
           </div>
@@ -311,10 +303,10 @@ export default function App() {
                   <button className={spendingView === 'withdrawal' ? 'on' : ''} onClick={() => setSpendingView('withdrawal')}>Taken from pot</button>
                 </div>
               )}
-              <PathChart result={result} input={input} series={tab === 'balance' ? 'balance' : spendingView} money={money} zoom={zoom}
+              <PathChart result={result} input={input} series={tab === 'balance' ? 'balance' : spendingView} zoom={zoom}
                 legend={tab === 'balance' ? legend : { ...defaultLegend, oneOffs: spendingLegend.oneOffs }} selected={selected} onSelect={setSelected} />
               {tab === 'balance'
-                ? <Legend legend={legend} onChange={setLegend} />
+                ? <Legend legend={legend} onChange={setLegend} result={result} />
                 : <Legend legend={spendingLegend} onChange={setSpendingLegend} hide={spendingHiddenLegend} />}
               <p className="chart-note">
                 {tab === 'balance'
@@ -344,6 +336,7 @@ export default function App() {
             {summary?.lastMonth && <>Market data up to {fmt.month(summary.lastMonth)} · </>}
             {result && <>{result.paths.length.toLocaleString()} start {startUnit(input)}s from {result.firstStart && fmt.month(result.firstStart)} · </>}
             Not financial advice. Past performance is not a guide to future returns.
+            <div className="copyright">© 2026 Remeody. All rights reserved.</div>
           </footer>
         </main>
       </div>
