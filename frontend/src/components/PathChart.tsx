@@ -223,9 +223,20 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
           best = i
         }
       })
+      // Lines crowd together, so the pinned line wins whenever it is in reach – otherwise clicking it can't unpin it
+      if (selected != null && visible(selected) && k < data[selected].length && Math.abs(yOf(data[selected][k]) - my) < PICK_DISTANCE)
+        best = selected
     }
     setHover({ index: best, k, x: mx, y: my })
   }
+
+  // Escape unpins: with ~2,000 lines nearly every click lands on one, so clicking a gap is unreliable
+  useEffect(() => {
+    if (selected == null) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onSelect(null)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, onSelect])
 
   const picked = hover?.index ?? null
   const active = picked ?? selected
@@ -345,14 +356,14 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
         )}
       </svg>
 
-      {selected != null && picked == null && !hover && result.paths[selected] && (
+      {selected != null && result.paths[selected] && (
         <div className="pinned-tag">
           <strong>Pinned: retired {fmt.month(result.paths[selected].start)}</strong>
           {' · '}
           {result.paths[selected].failed
             ? `ran out at ${Math.floor(result.paths[selected].failAge ?? 0)}`
             : result.paths[selected].partial ? 'still running' : `${fmt.gbp(result.paths[selected].endBalance)} left`}
-          <button className="link" onClick={() => onSelect(null)}>clear</button>
+          <button className="link" onClick={() => onSelect(null)} title="Or press Esc">clear</button>
         </div>
       )}
       {hover && picked == null && (
