@@ -14,7 +14,7 @@ run-name: >-
   ${{ github.event.head_commit.message || github.event.pull_request.title || 'Build and deploy' }}
 
 env:
-  AZURE_WEBAPP_NAME: REPLACE_WITH_WEB_APP_NAME # the name of the Azure Web App
+  AZURE_WEBAPP_NAME: WithdrawlSimulator # the name of the Azure Web App
 
 on:
   push:
