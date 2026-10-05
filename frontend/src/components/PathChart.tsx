@@ -231,10 +231,12 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
   const active = picked ?? selected
   const activePath = active != null ? result.paths[active] : null
 
-  const named: { key: keyof LegendState; index: number | null; color: string }[] = [
-    { key: 'best', index: result.bestIndex, color: COLORS.best },
-    { key: 'median', index: result.medianIndex, color: COLORS.median },
-    { key: 'worst', index: result.worstIndex, color: COLORS.worst },
+  // Best and worst are real start dates; the median is the middle value at each age, not any one start date's route
+  const pathValues = (index: number | null) => (index != null ? data[index] : null)
+  const named: { key: keyof LegendState; values: number[] | null; color: string }[] = [
+    { key: 'best', values: pathValues(result.bestIndex), color: COLORS.best },
+    { key: 'median', values: bands.length ? bands.map((b) => b[3]) : null, color: COLORS.median },
+    { key: 'worst', values: pathValues(result.worstIndex), color: COLORS.worst },
   ]
 
   return (
@@ -291,9 +293,9 @@ export function PathChart({ result, input, series, money, zoom, legend, selected
           {legend.rare && <path d={areaPath(0, 6)} fill={COLORS.band} opacity={0.22} />}
           {legend.lessLikely && <path d={areaPath(1, 5)} fill={COLORS.band} opacity={0.3} />}
           {legend.likely && <path d={areaPath(2, 4)} fill={COLORS.band} opacity={0.42} />}
-          {named.map(({ key, index, color }) =>
-            legend[key] && index != null ? (
-              <path key={key} d={linePath(data[index])} stroke={color} strokeWidth={2.4} fill="none" />
+          {named.map(({ key, values, color }) =>
+            legend[key] && values ? (
+              <path key={key} d={linePath(values)} stroke={color} strokeWidth={2.4} fill="none" />
             ) : null,
           )}
           {activePath && active != null && (

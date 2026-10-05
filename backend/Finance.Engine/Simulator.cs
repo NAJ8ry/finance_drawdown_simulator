@@ -350,7 +350,6 @@ public static class Simulator
 
         var completeRanked = Enumerable.Range(0, paths.Count).Where(i => !paths[i].Partial).OrderBy(i => Rank(paths[i])).ToList();
         result.WorstIndex = completeRanked[0];
-        result.MedianIndex = completeRanked[completeRanked.Count / 2];
         result.BestIndex = completeRanked[^1];
 
         var years = input.HorizonMonths / 12;

@@ -224,7 +224,6 @@ export interface SimulationResult {
   outliveHorizonRate: number | null
   survival: number[] | null
   bestIndex: number | null
-  medianIndex: number | null
   worstIndex: number | null
   bands: PercentileBand[]
   ageTable: PercentileBand[]

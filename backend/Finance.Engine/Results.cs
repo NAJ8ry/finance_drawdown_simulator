@@ -94,7 +94,6 @@ public sealed class SimulationResult
     public double[]? Survival { get; set; }
 
     public int? BestIndex { get; set; }
-    public int? MedianIndex { get; set; }
     public int? WorstIndex { get; set; }
 
     public List<PercentileBand> Bands { get; set; } = [];
